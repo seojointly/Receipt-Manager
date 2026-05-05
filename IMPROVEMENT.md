@@ -10,6 +10,7 @@
 | 6 | 전송 완료 시 이미지 자동 삭제 | ✅ 완료 |
 | 7 | 스캐너 페이지 한 페이지 통합 | ✅ 완료 |
 | 8 | 문구 및 버튼 변경 | ✅ 완료 |
+| 9 | Sheets 최근 데이터 미리보기 (beta) | ✅ 완료 |
 
 ## 상세 로그
 - **[공통 전제]** Receipt 타입에 category/memo 추가, SheetRow 타입 분리, SheetsBodySchema 신규, google-sheets.ts 컬럼 구조 변경(A~F: uuid/날짜/상호명/항목/메모/합계), ResultForm에 항목 select + 메모 input 추가
@@ -21,3 +22,4 @@
 - **[항목 6]** 전송 성공 후 updateReceipt에 imageBase64: undefined 추가 → saveToStorage가 imageMap에서 제외하여 localStorage 이미지 자동 삭제
 - **[항목 7]** scanner/page.tsx 스캔 결과 레이아웃: 이미지+ResultForm 세트 세로 배치(space-y-8), 세트 간 hr 구분선 추가
 - **[항목 8]** onSync 시그니처 SyncData 객체로 변경(날짜/상호명/합계 편집값 전달), "다시 촬영"→"재촬영" + "처음으로" 버튼(handleHome: handleReset+router.push('/')), "이미 전송됨"→"완료되었습니다.", 페이지 하단 Sheet 미리보기 카드(NEXT_PUBLIC_GOOGLE_SHEET_URL)
+- **[항목 9 beta]** GET /api/sheets 추가(최근 5행 역순, COST_GUARD), SheetPreview 컴포넌트 신규(forwardRef+useImperativeHandle로 refresh 노출, 새로고침 버튼, 로딩/에러/빈데이터 처리, overflow-x-auto 테이블), 전송 성공 후 previewRef.current?.refresh() 자동 갱신, 기존 링크 전용 카드를 SheetPreview로 교체

@@ -1,7 +1,42 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { google } from 'googleapis'
 import { SheetsBodySchema } from '@/lib/validators'
 import { checkDuplicate, appendReceiptToSheet } from '@/lib/google-sheets'
 import type { SheetRow } from '@/lib/types'
+
+// ⚠️ COST_GUARD: GET 호출 1회당 Sheets API 1회. 자동 폴링 금지 — 수동 새로고침만 허용.
+export async function GET() {
+  try {
+    const keyJson = process.env.GOOGLE_SERVICE_ACCOUNT_KEY
+    if (!keyJson) throw new Error('GOOGLE_SERVICE_ACCOUNT_KEY가 설정되지 않았습니다.')
+    const credentials = JSON.parse(keyJson)
+    const auth = new google.auth.GoogleAuth({
+      credentials,
+      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+    })
+    const sheets = google.sheets({ version: 'v4', auth })
+    const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID!
+    const sheetName = process.env.GOOGLE_SHEET_NAME ?? 'Sheet1'
+
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('⚠️ COST_GUARD: Sheets API called')
+    }
+
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: `${sheetName}!A:F`,
+    })
+
+    const rows = res.data.values ?? []
+    // 첫 행(헤더) 제외, 최근 5행만 역순으로 반환
+    const data = rows.slice(1).slice(-5).reverse()
+
+    return NextResponse.json({ rows: data })
+  } catch (err) {
+    console.error('[sheets GET]', err)
+    return NextResponse.json({ error: 'Sheets 불러오기 실패', rows: [] }, { status: 500 })
+  }
+}
 
 function delay(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms))
