@@ -5,12 +5,14 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { v4 as uuidv4 } from 'uuid'
 import { ArrowLeft, AlertCircle, RotateCcw, Home } from 'lucide-react'
-import type { AnalyzeResult, Receipt } from '@/lib/types'
+import type { AnalyzeResult } from '@/lib/types'
 import type { SyncData } from '@/components/scanner/ResultForm'
+import type { SheetPreviewHandle } from '@/components/scanner/SheetPreview'
 import { useReceipts } from '@/hooks/useReceipts'
 import { useDailyCount } from '@/hooks/useDailyCount'
 import { ImageUploader } from '@/components/scanner/ImageUploader'
 import { ResultForm } from '@/components/scanner/ResultForm'
+import { SheetPreview } from '@/components/scanner/SheetPreview'
 import { Spinner } from '@/components/ui/Spinner'
 import { Button } from '@/components/ui/Button'
 
@@ -32,6 +34,7 @@ export default function ScannerPage() {
   const [scanItems, setScanItems] = useState<ScanItem[]>([])
   const [uploadError, setUploadError] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
+  const previewRef = useRef<SheetPreviewHandle>(null)
 
   const isLimitReached = todayCount >= limit
 
@@ -160,7 +163,6 @@ export default function ScannerPage() {
         throw new Error(resData.error || '전송에 실패했습니다.')
       }
 
-      // 항목 6: 전송 성공 후 이미지 삭제 (imageBase64: undefined → saveToStorage에서 imageMap에서 제외)
       updateReceipt(itemId, {
         status: 'synced',
         sheetsRowIndex: resData.rowIndex,
@@ -168,6 +170,9 @@ export default function ScannerPage() {
         memo: data.memo,
         imageBase64: undefined,
       })
+
+      // 전송 성공 후 Sheet 미리보기 자동 갱신
+      previewRef.current?.refresh()
     }
   }
 
@@ -263,19 +268,7 @@ export default function ScannerPage() {
           </>
         )}
 
-        {process.env.NEXT_PUBLIC_GOOGLE_SHEET_URL && (
-          <div className="rounded-2xl border border-zinc-100 bg-white p-4">
-            <p className="mb-2 text-sm text-zinc-500">Sheet 미리보기</p>
-            <a
-              href={process.env.NEXT_PUBLIC_GOOGLE_SHEET_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-sm text-blue-500 underline"
-            >
-              Google Sheets 열기 →
-            </a>
-          </div>
-        )}
+        <SheetPreview ref={previewRef} />
       </div>
     </div>
   )
