@@ -1,25 +1,34 @@
 'use client'
 
+import { useState } from 'react'
 import Link from 'next/link'
-import { CircleDollarSign, CheckCircle2, Clock, ExternalLink } from 'lucide-react'
+import { CircleDollarSign, CheckCircle2, Clock, ExternalLink, Trash2 } from 'lucide-react'
 import { useReceipts } from '@/hooks/useReceipts'
 import { SummaryCard } from '@/components/dashboard/SummaryCard'
 import { ReceiptList } from '@/components/dashboard/ReceiptList'
+import { ClearModal } from '@/components/dashboard/ClearModal'
 import { Button } from '@/components/ui/Button'
 
 const SHEET_URL = process.env.NEXT_PUBLIC_GOOGLE_SHEET_URL
 
 export default function DashboardPage() {
-  const { receipts, totalSynced, syncedCount, pendingCount, isLoaded } = useReceipts()
+  const { receipts, totalSynced, syncedCount, pendingCount, isLoaded, clearSynced, clearFailed } = useReceipts()
+  const [showClearModal, setShowClearModal] = useState(false)
 
   if (!isLoaded) return null
 
   return (
     <div className="min-h-screen bg-zinc-50">
       <div className="mx-auto max-w-lg space-y-6 p-4">
-        <div>
-          <p className="text-sm text-zinc-400">ReceiptLens</p>
-          <h1 className="text-2xl font-bold text-zinc-900">영수증 대시보드</h1>
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm text-zinc-400">ReceiptLens</p>
+            <h1 className="text-2xl font-bold text-zinc-900">영수증 대시보드</h1>
+          </div>
+          <Button variant="ghost" onClick={() => setShowClearModal(true)}>
+            <Trash2 className="h-4 w-4" />
+            초기화
+          </Button>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
@@ -52,6 +61,15 @@ export default function DashboardPage() {
 
         <ReceiptList receipts={receipts} />
       </div>
+
+      {showClearModal && (
+        <ClearModal
+          receipts={receipts}
+          onClearSynced={clearSynced}
+          onClearFailed={clearFailed}
+          onClose={() => setShowClearModal(false)}
+        />
+      )}
     </div>
   )
 }
