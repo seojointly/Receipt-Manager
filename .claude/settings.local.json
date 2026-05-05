@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx create-next-app@latest receipt-lens --typescript --tailwind --app --src-dir=false --import-alias=\"@/*\" --yes)",
+      "Bash(Get-Content \"C:\\\\Users\\\\user\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-user-Desktop-001-IT-001-VibeCoding-004----------\\\\d6fc02a1-4d60-4d76-906f-05c0306a52c3\\\\tasks\\\\brsx5h33y.output\" -Wait)",
+      "Bash(Select-String -Pattern \"Success|error|Done|created|failed|npm warn|✓|✔\")",
+      "Bash(npm install *)",
+      "Bash(Get-Content *)"
+    ]
+  }
+}
