@@ -40,6 +40,8 @@ export default function ScannerPage() {
       supplyAmount: 0,
       taxAmount: 0,
       totalAmount: 0,
+      category: '',
+      memo: '',
       imageBase64: dataUrl,
       status: 'pending',
       createdAt: new Date().toISOString(),
@@ -88,13 +90,20 @@ export default function ScannerPage() {
     setAnalyzeError(null)
   }
 
-  async function handleSync() {
+  async function handleSync(category: string, memo: string) {
     if (!currentId || !analyzeResult) return
 
     const res = await fetch('/api/sheets', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: currentId, ...analyzeResult }),
+      body: JSON.stringify({
+        id: currentId,
+        date: analyzeResult.date,
+        storeName: analyzeResult.storeName,
+        category,
+        memo,
+        totalAmount: analyzeResult.totalAmount,
+      }),
     })
     const data = await res.json()
 
@@ -103,7 +112,12 @@ export default function ScannerPage() {
       throw new Error(data.error || '전송에 실패했습니다.')
     }
 
-    updateReceipt(currentId, { status: 'synced', sheetsRowIndex: data.rowIndex })
+    updateReceipt(currentId, {
+      status: 'synced',
+      sheetsRowIndex: data.rowIndex,
+      category,
+      memo,
+    })
   }
 
   const currentReceipt = currentId ? (receipts.find((r) => r.id === currentId) ?? null) : null

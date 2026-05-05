@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { ReceiptSchema } from '@/lib/validators'
+import { SheetsBodySchema } from '@/lib/validators'
 import { checkDuplicate, appendReceiptToSheet } from '@/lib/google-sheets'
-import type { Receipt } from '@/lib/types'
+import type { SheetRow } from '@/lib/types'
 
 function delay(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms))
@@ -16,16 +16,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: '잘못된 요청입니다.', code: 'SHEETS_ERROR' }, { status: 400 })
   }
 
-  const validation = ReceiptSchema.safeParse(body)
-  if (!validation.success) {
-    return NextResponse.json({ error: '입력값이 올바르지 않습니다.', code: 'SHEETS_ERROR' }, { status: 400 })
+  const rawBody = body as Record<string, unknown>
+  const id = rawBody.id
+
+  if (!id || typeof id !== 'string') {
+    return NextResponse.json({ error: '입력값이 올바르지 않습니다.', code: 'VALIDATION_ERROR' }, { status: 400 })
   }
 
-  const receipt = body as Receipt
+  const validation = SheetsBodySchema.safeParse(rawBody)
+  if (!validation.success) {
+    return NextResponse.json({ error: '입력값이 올바르지 않습니다.', code: 'VALIDATION_ERROR' }, { status: 400 })
+  }
 
   let isDuplicate: boolean
   try {
-    isDuplicate = await checkDuplicate(receipt.id)
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('⚠️ COST_GUARD: Sheets API called')
+    }
+    isDuplicate = await checkDuplicate(id)
   } catch (err) {
     const error = err instanceof Error ? err.message : 'Google Sheets 연결 오류. 잠시 후 다시 시도하세요.'
     return NextResponse.json({ error, code: 'SHEETS_ERROR' }, { status: 500 })
@@ -38,13 +46,15 @@ export async function POST(req: NextRequest) {
     )
   }
 
+  const sheetRow: SheetRow = { id, ...validation.data }
+
   let rowIndex: number
   try {
-    rowIndex = await appendReceiptToSheet(receipt)
+    rowIndex = await appendReceiptToSheet(sheetRow)
   } catch {
     await delay(1000)
     try {
-      rowIndex = await appendReceiptToSheet(receipt)
+      rowIndex = await appendReceiptToSheet(sheetRow)
     } catch (err) {
       const error = err instanceof Error ? err.message : 'Google Sheets 연결 오류. 잠시 후 다시 시도하세요.'
       return NextResponse.json({ error, code: 'SHEETS_ERROR' }, { status: 500 })

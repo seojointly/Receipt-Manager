@@ -5,6 +5,8 @@ export interface Receipt {
   supplyAmount: number
   taxAmount: number
   totalAmount: number
+  category: string
+  memo: string
   imageBase64?: string
   status: 'pending' | 'synced' | 'error'
   createdAt: string
@@ -16,6 +18,15 @@ export interface AnalyzeResult {
   storeName: string
   supplyAmount: number
   taxAmount: number
+  totalAmount: number
+}
+
+export interface SheetRow {
+  id: string
+  date: string
+  storeName: string
+  category: string
+  memo: string
   totalAmount: number
 }
 

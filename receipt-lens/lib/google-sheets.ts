@@ -1,5 +1,5 @@
 import { google } from 'googleapis'
-import { Receipt } from './types'
+import type { SheetRow } from './types'
 
 const getAuthClient = () => {
   const keyJson = process.env.GOOGLE_SERVICE_ACCOUNT_KEY
@@ -39,7 +39,7 @@ export const checkDuplicate = async (id: string): Promise<boolean> => {
   }
 }
 
-export const appendReceiptToSheet = async (receipt: Receipt): Promise<number> => {
+export const appendReceiptToSheet = async (row: SheetRow): Promise<number> => {
   // ⚠️ COST_GUARD: Sheets API 호출 1회
   const auth = getAuthClient()
   const sheets = google.sheets({ version: 'v4', auth })
@@ -49,14 +49,14 @@ export const appendReceiptToSheet = async (receipt: Receipt): Promise<number> =>
 
   const sheetName = process.env.GOOGLE_SHEET_NAME ?? 'Sheet1'
 
+  // A: UUID | B: 날짜 | C: 상호명 | D: 항목(category) | E: 메모(memo) | F: 합계
   const values = [[
-    receipt.id,
-    receipt.date,
-    receipt.storeName,
-    receipt.supplyAmount,
-    receipt.taxAmount,
-    receipt.totalAmount,
-    receipt.createdAt,
+    row.id,
+    row.date,
+    row.storeName,
+    row.category,
+    row.memo,
+    row.totalAmount,
   ]]
 
   let lastError: Error | null = null
@@ -65,7 +65,7 @@ export const appendReceiptToSheet = async (receipt: Receipt): Promise<number> =>
     try {
       const response = await sheets.spreadsheets.values.append({
         spreadsheetId,
-        range: `${sheetName}!A:G`,
+        range: `${sheetName}!A:F`,
         valueInputOption: 'USER_ENTERED',
         requestBody: { values },
       })

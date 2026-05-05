@@ -1,11 +1,13 @@
 'use client'
 
 import Link from 'next/link'
-import { CircleDollarSign, CheckCircle2, Clock } from 'lucide-react'
+import { CircleDollarSign, CheckCircle2, Clock, ExternalLink } from 'lucide-react'
 import { useReceipts } from '@/hooks/useReceipts'
 import { SummaryCard } from '@/components/dashboard/SummaryCard'
 import { ReceiptList } from '@/components/dashboard/ReceiptList'
 import { Button } from '@/components/ui/Button'
+
+const SHEET_URL = process.env.NEXT_PUBLIC_GOOGLE_SHEET_URL
 
 export default function DashboardPage() {
   const { receipts, totalSynced, syncedCount, pendingCount, isLoaded } = useReceipts()
@@ -20,7 +22,7 @@ export default function DashboardPage() {
           <h1 className="text-2xl font-bold text-zinc-900">영수증 대시보드</h1>
         </div>
 
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 gap-3">
           <SummaryCard
             icon={CircleDollarSign}
             label="총 지출"
@@ -35,6 +37,12 @@ export default function DashboardPage() {
             icon={Clock}
             label="대기"
             value={pendingCount + '건'}
+          />
+          <SummaryCard
+            icon={ExternalLink}
+            label="Sheet 링크"
+            value="스프레드시트"
+            onClick={SHEET_URL ? () => window.open(SHEET_URL, '_blank', 'noopener,noreferrer') : undefined}
           />
         </div>
 

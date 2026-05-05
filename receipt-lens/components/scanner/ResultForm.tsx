@@ -5,10 +5,12 @@ import { AlertCircle } from 'lucide-react'
 import type { Receipt, AnalyzeResult } from '@/lib/types'
 import { Button } from '@/components/ui/Button'
 
+const CATEGORIES = ['식비', '교통비', '업무비', '의료비', '생활용품', '의류/미용', '교육비', '문화/여가', '기타']
+
 interface ResultFormProps {
   result: AnalyzeResult
   receipt: Receipt
-  onSync: () => Promise<void>
+  onSync: (category: string, memo: string) => Promise<void>
 }
 
 function formatKRW(amount: number) {
@@ -28,6 +30,8 @@ export function ResultForm({ result, receipt, onSync }: ResultFormProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [cooldown, setCooldown] = useState(false)
+  const [category, setCategory] = useState('기타')
+  const [memo, setMemo] = useState('')
 
   const isSynced = receipt.status === 'synced'
 
@@ -37,7 +41,7 @@ export function ResultForm({ result, receipt, onSync }: ResultFormProps) {
     setLoading(true)
     setCooldown(true)
     try {
-      await onSync()
+      await onSync(category, memo)
     } catch (err) {
       setError(err instanceof Error ? err.message : '전송에 실패했습니다.')
     } finally {
@@ -54,6 +58,34 @@ export function ResultForm({ result, receipt, onSync }: ResultFormProps) {
         <Row label="공급가액" value={formatKRW(result.supplyAmount)} />
         <Row label="부가세" value={formatKRW(result.taxAmount)} />
         <Row label="합계" value={formatKRW(result.totalAmount)} bold />
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex flex-col gap-1">
+          <label className="text-xs text-zinc-500">항목</label>
+          <select
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+            disabled={isSynced}
+            className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-800 disabled:cursor-not-allowed disabled:text-zinc-400"
+          >
+            {CATEGORIES.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <label className="text-xs text-zinc-500">메모</label>
+          <input
+            type="text"
+            value={memo}
+            onChange={(e) => setMemo(e.target.value)}
+            disabled={isSynced}
+            placeholder="메모 입력 (선택)"
+            className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-800 placeholder:text-zinc-400 disabled:cursor-not-allowed disabled:text-zinc-400"
+          />
+        </div>
       </div>
 
       {error && (
