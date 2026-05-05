@@ -9,7 +9,8 @@
       "Bash(npx tsc *)",
       "Bash(Select-Object -First 50)",
       "Bash(Get-ChildItem -Recurse \"C:\\\\Users\\\\user\\\\Desktop\\\\001.IT\\\\001.VibeCoding\\\\004. 영수증 관리 앱\\\\receipt-lens\\\\app\" -File)",
-      "Bash(Select-Object FullName)"
+      "Bash(Select-Object FullName)",
+      "Bash(npm run *)"
     ]
   }
 }
