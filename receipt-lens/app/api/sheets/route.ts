@@ -23,7 +23,14 @@ export async function POST(req: NextRequest) {
 
   const receipt = body as Receipt
 
-  const isDuplicate = await checkDuplicate(receipt.id)
+  let isDuplicate: boolean
+  try {
+    isDuplicate = await checkDuplicate(receipt.id)
+  } catch (err) {
+    const error = err instanceof Error ? err.message : 'Google Sheets 연결 오류. 잠시 후 다시 시도하세요.'
+    return NextResponse.json({ error, code: 'SHEETS_ERROR' }, { status: 500 })
+  }
+
   if (isDuplicate) {
     return NextResponse.json(
       { error: '이미 전송된 영수증입니다.', code: 'SHEETS_ERROR' },
@@ -39,7 +46,7 @@ export async function POST(req: NextRequest) {
     try {
       rowIndex = await appendReceiptToSheet(receipt)
     } catch (err) {
-      const error = err instanceof Error ? err.message : '알 수 없는 오류'
+      const error = err instanceof Error ? err.message : 'Google Sheets 연결 오류. 잠시 후 다시 시도하세요.'
       return NextResponse.json({ error, code: 'SHEETS_ERROR' }, { status: 500 })
     }
   }

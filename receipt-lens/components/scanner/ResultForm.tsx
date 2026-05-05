@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { AlertCircle } from 'lucide-react'
 import type { Receipt, AnalyzeResult } from '@/lib/types'
 import { Button } from '@/components/ui/Button'
@@ -27,22 +27,22 @@ function Row({ label, value, bold = false }: { label: string; value: string; bol
 export function ResultForm({ result, receipt, onSync }: ResultFormProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const cooldownRef = useRef(false)
+  const [cooldown, setCooldown] = useState(false)
 
   const isSynced = receipt.status === 'synced'
 
   async function handleSync() {
-    if (isSynced || loading || cooldownRef.current) return
+    if (isSynced || loading || cooldown) return
     setError(null)
     setLoading(true)
-    cooldownRef.current = true
+    setCooldown(true)
     try {
       await onSync()
     } catch (err) {
       setError(err instanceof Error ? err.message : '전송에 실패했습니다.')
     } finally {
       setLoading(false)
-      setTimeout(() => { cooldownRef.current = false }, 3000) // ⚠️ COST_GUARD: 3초 재클릭 방지
+      setTimeout(() => setCooldown(false), 3000) // ⚠️ COST_GUARD: 3초 재클릭 방지
     }
   }
 
@@ -63,7 +63,7 @@ export function ResultForm({ result, receipt, onSync }: ResultFormProps) {
         </div>
       )}
 
-      <Button onClick={handleSync} loading={loading} disabled={isSynced} className="w-full">
+      <Button onClick={handleSync} loading={loading} disabled={isSynced || cooldown} className="w-full">
         {isSynced ? '이미 전송됨' : 'Google Sheets에 전송'}
       </Button>
     </div>

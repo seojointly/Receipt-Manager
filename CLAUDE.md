@@ -5,13 +5,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project
 
 **ReceiptLens** — 영수증 사진을 Gemini 2.5 Flash Vision으로 분석하고 Google Sheets에 자동 기록하는 개인용 웹앱.
-실제 코드는 `receipt-lens/` 서브디렉토리에 있다.
+실제 코드는 `receipt-lens/` 서브디렉토리에 있다. 서브디렉토리에는 `receipt-lens/CLAUDE.md`도 존재하며 동일한 내용을 참조한다.
 
 ## Hard Constraints (절대 불변)
 
 - **Google Cloud 비용 0원**: Google Sheets API v4만 허용. Firebase, Cloud Run, BigQuery, Cloud Storage 등 일절 금지.
 - **유료 서비스 금지**: Supabase, PlanetScale, Upstash, Docker 기반 서비스 등 외부 유료 인프라 금지.
-- **API 키 격리**: `GEMINI_API_KEY`, `GOOGLE_SERVICE_ACCOUNT_KEY`, `GOOGLE_SPREADSHEET_ID`는 `.env.local`에만 존재. 클라이언트 번들에 절대 포함 금지. Gemini 호출은 `/api/analyze` route에서만 수행.
+- **API 키 격리**: `GEMINI_API_KEY`, `GOOGLE_SERVICE_ACCOUNT_KEY`, `GOOGLE_SPREADSHEET_ID`는 `receipt-lens/.env.local`에만 존재. 클라이언트 번들에 절대 포함 금지. Gemini 호출은 `/api/analyze` route에서만 수행.
 - **인증 방식 고정**: Google Sheets는 Service Account + JSON 키(`GOOGLE_SERVICE_ACCOUNT_KEY` env var)로만 인증. OAuth flow 금지.
 
 ## Stack (실제 설치 버전)
@@ -29,27 +29,20 @@ uuid ^14.0.0
 
 **Next.js 16 / React 19**: 훈련 데이터(Next.js 13–15)와 API가 다르다. 코드 작성 전 `node_modules/next/dist/docs/`의 관련 가이드를 확인하라.
 
-**Zod v4**: v3 대비 breaking change 다수. 주요 차이점:
+**Zod v4**: v3 대비 breaking change 다수.
 - `z.string().nonempty()` → `z.string().min(1)`
 - `schema.parse()` 에러 구조 변경
 - import는 동일하게 `import { z } from 'zod'`
 
 ## Development Commands
 
+모든 명령은 `receipt-lens/` 디렉토리에서 실행한다.
+
 ```bash
-cd receipt-lens
-
-# 개발 서버
-npm run dev
-
-# 타입 체크
-npx tsc --noEmit
-
-# 빌드
-npm run build
-
-# 린트
-npm run lint
+npm run dev          # 개발 서버 (localhost:3000)
+npx tsc --noEmit     # 타입 체크
+npm run build        # 프로덕션 빌드
+npm run lint         # ESLint
 ```
 
 ## Architecture
@@ -66,12 +59,16 @@ npm run lint
     → AnalyzeResult JSON 반환
   → (client) stub을 실제 데이터로 updateReceipt, ResultForm 표시
     → 분석 실패 시: stub removeReceipt, 에러 박스 표시
-  → POST /api/sheets { <Receipt 객체> }
+  → POST /api/sheets { id, date, storeName, supplyAmount, taxAmount, totalAmount }
+    → ⚠️ 전체 Receipt가 아닌 id + AnalyzeResult 5개 필드만 전송 (createdAt 등 제외)
     → (server) checkDuplicate → appendReceiptToSheet (실패 시 1회 재시도)
     → { success: true, rowIndex } 반환
   → (client) localStorage 상태를 synced로 업데이트
     → 전송 실패 시: status: 'error' 업데이트
 ```
+
+**Sheets 행 구조**: `[id, date, storeName, supplyAmount, taxAmount, totalAmount, createdAt]` (A–G열)
+`/api/sheets` body에 `createdAt`이 포함되지 않으므로 G열은 항상 빈값 — 의도된 설계.
 
 ### 서버/클라이언트 경계
 
@@ -79,122 +76,73 @@ npm run lint
 `lib/types.ts`만 예외: 순수 TypeScript 인터페이스이므로 client 컴포넌트에서 `import type`으로 사용 가능.
 `@google/generative-ai`, `googleapis`는 Node.js 런타임 전용 패키지.
 
+### 핵심 타입 (`lib/types.ts`)
+
+```typescript
+Receipt       // localStorage 저장 단위. status: 'pending' | 'synced' | 'error'
+AnalyzeResult // Gemini 분석 결과 5개 필드 (id/status/createdAt 없음)
+ApiError      // { error: string, code: 'PARSE_FAILED' | 'API_ERROR' | 'SHEETS_ERROR' | 'VALIDATION_ERROR' }
+```
+
+`ReceiptSchema` (`lib/validators.ts`)는 두 라우트에서 공유된다:
+- `/api/analyze`: Gemini 응답 JSON을 검증하는 **출력** 스키마
+- `/api/sheets`: 클라이언트가 전송한 body를 검증하는 **입력** 스키마 (id 필드는 스키마 밖에서 별도 처리)
+
 ### API Routes
 
 | Route | 역할 |
 |-------|------|
 | `POST /api/analyze` | base64 data URL → Gemini → `AnalyzeResult` JSON |
-| `POST /api/sheets` | `Receipt` 객체 → Google Sheets 행 추가 + 중복 방지 |
+| `POST /api/sheets` | `id + AnalyzeResult 5필드` → Google Sheets 행 추가 + 중복 방지 |
 
 **`/api/analyze` 에러 응답:**
 - 400: 이미지 없음
-- 422 `PARSE_FAILED`: JSON 파싱 실패 (원본 응답 앞 100자 포함) 또는 영수증 아님
-- 500 `API_ERROR`: Gemini API 오류
+- 422 `PARSE_FAILED`: 영수증 아닌 이미지 → "영수증 이미지를 업로드해주세요." / JSON 파싱·스키마 검증 실패 → "더 선명한 사진으로 다시 시도해주세요."
+- 500 `API_ERROR`: Gemini API 오류 → "AI 분석 중 오류가 발생했습니다."
 
 **`/api/sheets` 에러 응답:**
 - 400: ReceiptSchema 검증 실패
 - 409 `SHEETS_ERROR`: 중복 ID (`이미 전송된 영수증입니다.`)
-- 500 `SHEETS_ERROR`: Sheets API 오류 (1회 재시도 후)
+- 500 `SHEETS_ERROR`: Sheets API 오류 (1회 재시도 후) — googleapis `err.code`로 분기:
+  - 401/403 → "Google Sheets 권한 오류. 서비스 계정 이메일이 스프레드시트에 공유되어 있는지 확인하세요."
+  - 404 → "스프레드시트를 찾을 수 없습니다. GOOGLE_SPREADSHEET_ID를 확인하세요."
+  - 기타 → "Google Sheets 연결 오류. 잠시 후 다시 시도하세요."
 
-### 구현 상태
-
-```
-app/                    — ✅ 전부 구현 완료
-  page.tsx              — 대시보드 (요약 카드 3개 + ReceiptList + 스캔 버튼)
-  scanner/page.tsx      — 스캐너 (Phase 상태머신: upload→analyzing→result)
-  api/analyze/route.ts  — base64 → Gemini → AnalyzeResult
-  api/sheets/route.ts   — Receipt → Google Sheets (중복 방지)
-
-lib/                    — ✅ 전부 구현 완료 (서버 전용)
-  types.ts              — Receipt, AnalyzeResult, ApiError 타입
-  validators.ts         — ReceiptSchema (5개 필드만 검증) + parseCurrency()
-  gemini.ts             — Gemini 클라이언트 + RECEIPT_SYSTEM_PROMPT
-  google-sheets.ts      — getAuthClient(), appendReceiptToSheet(), checkDuplicate()
-
-hooks/                  — ✅ 전부 구현 완료
-  useReceipts.ts        — localStorage CRUD + 상태 동기화
-  useCamera.ts          — 카메라 스트림 제어
-
-components/             — ✅ 전부 구현 완료
-  ui/Button.tsx         — variant: primary|secondary|danger|ghost, loading prop
-  ui/Badge.tsx          — Receipt.status 기반 색상 배지
-  ui/Spinner.tsx        — animate-spin 스피너
-  scanner/ImageUploader.tsx  — 드래그앤드롭 + 파일/카메라 버튼, 5MB 클라이언트 차단
-  scanner/PreviewPanel.tsx   — 이미지 미리보기 + 재촬영 콜백
-  scanner/ResultForm.tsx     — AI 결과 표시 + Sheets 전송 버튼 (3초 쿨다운 COST_GUARD)
-  dashboard/SummaryCard.tsx  — LucideIcon + label + value 카드
-  dashboard/ReceiptRow.tsx   — 상호명/날짜/금액/Badge 행
-  dashboard/ReceiptList.tsx  — ReceiptRow 목록 + 빈 상태 처리
-```
-
-### 스캐너 페이지 아키텍처 (`app/scanner/page.tsx`)
+### 스캐너 페이지 핵심 패턴 (`app/scanner/page.tsx`)
 
 **Phase 상태머신**: `'upload' → 'analyzing' → 'result'`
 
-- **upload**: ImageUploader 표시. 분석 실패 시 이 단계로 복귀하며 에러 박스 표시.
-- **analyzing**: PreviewPanel + Spinner. 재촬영 버튼으로 요청 중단 가능(AbortController).
-- **result**: PreviewPanel + ResultForm. ResultForm의 `receipt` prop은 `receipts.find(id)`로 live 상태를 구독하여 전송 완료 즉시 버튼이 비활성화됨.
-
-**핵심 패턴**:
-- 이미지 선택 즉시 stub receipt(`date:''`, `storeName:''`, amounts 0) 추가 → 분석 실패 시 `removeReceipt`로 삭제
-- `useReceipts()`의 `receipts` 배열에서 `currentId`로 조회하여 receipt 상태 추적 (로컬 state 아님)
+- 이미지 선택 즉시 stub receipt 생성 → `addReceipt` → 분석 실패 시 `removeReceipt`로 롤백
+- `useReceipts()`의 `receipts` 배열에서 `currentId`로 조회해 receipt 상태 추적 (로컬 state 아님) — ResultForm의 전송 완료 감지에 사용
 - `AbortController`로 분석 중 재촬영 시 fetch 취소
 
-### Components API (주요 props)
+### useReceipts 훅 (`hooks/useReceipts.ts`)
 
-```ts
-// scanner/ImageUploader
-{ onImage: (base64DataURL: string) => void; disabled?: boolean }
+localStorage를 단일 진실 공급원으로 사용하는 클라이언트 전용 훅. 반환값:
 
-// scanner/PreviewPanel
-{ src: string; onReset: () => void }
-
-// scanner/ResultForm
-{ result: AnalyzeResult; receipt: Receipt; onSync: () => Promise<void> }
-// onSync는 reject 시 에러 메시지를 컴포넌트가 직접 표시함
-
-// dashboard/SummaryCard
-{ icon: LucideIcon; label: string; value: string | number }
-
-// dashboard/ReceiptList
-{ receipts: Receipt[]; onSelect?: (receipt: Receipt) => void }
+```typescript
+receipts      // Receipt[] — 전체 목록 (최신순)
+addReceipt    // (receipt: Receipt) => void
+updateReceipt // (id: string, patch: Partial<Receipt>) => void
+removeReceipt // (id: string) => void
+totalSynced   // synced 영수증 totalAmount 합계 (대시보드 표시용)
+syncedCount   // synced 영수증 수
+pendingCount  // pending 영수증 수
+isLoaded      // false인 동안 렌더링 보류 — SSR hydration mismatch 방지
 ```
 
-디자인 원칙: `bg-zinc-50` 배경, `bg-white` 카드, `rounded-2xl`, 모바일 우선 `max-w-lg mx-auto`.
+localStorage는 `useEffect` 내에서만 읽는다. `isLoaded`가 `true`가 된 후부터 receipts 변경이 localStorage에 동기화된다.
 
-### lib/ 핵심 동작
+### COST_GUARD 규칙
 
-**`validators.ts`**: `ReceiptSchema`는 Gemini 응답 및 `/api/sheets` 입력 검증에 공용으로 사용된다. `date`, `storeName`, `supplyAmount`, `taxAmount`, `totalAmount` 5개 필드만 검증 (Receipt의 `id`, `status`, `createdAt` 등은 검증 대상 아님).
+`google-sheets.ts`의 모든 Sheets API 호출 함수에 `// ⚠️ COST_GUARD` 주석이 있다.
+`/api/sheets`는 반드시 `checkDuplicate(id)` → `appendReceiptToSheet()` 순서로 각 1회만 호출해야 한다 (재시도 포함 최대 2회).
 
-**`google-sheets.ts`**: 모든 API 호출 함수에 `// ⚠️ COST_GUARD` 주석. `/api/sheets`는 반드시 `checkDuplicate(id)` → `appendReceiptToSheet()` 순서로 각 1회만 호출해야 한다 (재시도 포함 최대 2회).
+`NODE_ENV === 'development'`일 때 각 API 호출 직전 경고를 출력한다:
+- `console.warn('⚠️ COST_GUARD: Sheets API called')`
+- `console.warn('⚠️ COST_GUARD: Gemini API called')`
 
-### Hooks API
-
-**`useReceipts()`** — `'use client'`, localStorage 키: `'receipt_lens_data'`
-```ts
-{
-  receipts: Receipt[]
-  addReceipt(receipt: Receipt): void
-  updateReceipt(id: string, patch: Partial<Receipt>): void
-  removeReceipt(id: string): void
-  totalSynced: number      // synced 상태 금액 합계
-  syncedCount: number
-  pendingCount: number
-  isLoaded: boolean        // SSR hydration 완료 여부 — false일 때 렌더링 보류
-}
-```
-
-**`useCamera()`** — `'use client'`
-```ts
-{
-  stream: MediaStream | null
-  error: string | null     // 한국어 메시지 (NotAllowedError, NotFoundError 구분)
-  isActive: boolean
-  startCamera(): Promise<void>
-  stopCamera(): void
-}
-```
-후면 카메라 우선(`facingMode: { ideal: 'environment' }`), 언마운트 시 자동 스트림 정리.
+전송 버튼은 `cooldown` state(3초)와 `isSynced` 조건 모두에서 비활성화 (`disabled={isSynced || cooldown}`).
 
 ### localStorage Schema
 
@@ -203,10 +151,6 @@ components/             — ✅ 전부 구현 완료
 ```
 
 `Receipt.status`: `'pending'` (분석됨, 미전송) | `'synced'` (Sheets 전송 완료) | `'error'` (전송 실패)
-
-### Google Sheets 컬럼 (A~G, 1행 헤더)
-
-`ID | 날짜 | 상호명 | 공급가액 | 부가세 | 합계 | 기록일시`
 
 ## Environment Variables
 
@@ -230,8 +174,9 @@ GOOGLE_SERVICE_ACCOUNT_KEY={"type":"service_account",...}  # JSON 한 줄 직렬
 
 영수증이 아닌 이미지 응답: `{"error": "영수증이 아닙니다"}` → 422 반환.
 
-## Gemini 무료 티어 한도
-
 - 모델: `gemini-2.5-flash-preview-04-17`
-- 무료 한도: 일 250 RPD
-- 예상 사용량: 하루 50회 미만
+- 무료 한도: 일 250 RPD / 예상 사용량: 하루 50회 미만
+
+## 디자인 원칙
+
+`bg-zinc-50` 배경, `bg-white` 카드, `rounded-2xl`, 모바일 우선 `max-w-lg mx-auto`.

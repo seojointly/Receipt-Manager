@@ -20,14 +20,19 @@ export async function POST(req: NextRequest) {
 
   let text: string
   try {
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('⚠️ COST_GUARD: Gemini API called')
+    }
     const result = await model.generateContent([
       { inlineData: { mimeType, data } },
       RECEIPT_SYSTEM_PROMPT,
     ])
     text = result.response.text()
-  } catch (err) {
-    const error = err instanceof Error ? err.message : '알 수 없는 오류'
-    return NextResponse.json({ error, code: 'API_ERROR' }, { status: 500 })
+  } catch {
+    return NextResponse.json(
+      { error: 'AI 분석 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.', code: 'API_ERROR' },
+      { status: 500 }
+    )
   }
 
   let parsed: Record<string, unknown>
@@ -35,13 +40,16 @@ export async function POST(req: NextRequest) {
     parsed = JSON.parse(text)
   } catch {
     return NextResponse.json(
-      { error: `응답 파싱 실패: ${text.slice(0, 100)}`, code: 'PARSE_FAILED' },
+      { error: '영수증 정보를 인식하지 못했습니다. 더 선명한 사진으로 다시 시도해주세요.', code: 'PARSE_FAILED' },
       { status: 422 }
     )
   }
 
   if (parsed.error) {
-    return NextResponse.json({ error: String(parsed.error), code: 'PARSE_FAILED' }, { status: 422 })
+    return NextResponse.json(
+      { error: '영수증 이미지를 업로드해주세요.', code: 'PARSE_FAILED' },
+      { status: 422 }
+    )
   }
 
   const normalized = {
@@ -54,7 +62,7 @@ export async function POST(req: NextRequest) {
   const validation = ReceiptSchema.safeParse(normalized)
   if (!validation.success) {
     return NextResponse.json(
-      { error: `스키마 검증 실패: ${text.slice(0, 100)}`, code: 'PARSE_FAILED' },
+      { error: '영수증 정보를 인식하지 못했습니다. 더 선명한 사진으로 다시 시도해주세요.', code: 'PARSE_FAILED' },
       { status: 422 }
     )
   }

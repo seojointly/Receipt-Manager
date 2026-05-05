@@ -1,36 +1,57 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ReceiptLens
 
-## Getting Started
+영수증 사진을 Gemini Vision으로 분석하고 Google Sheets에 자동 기록하는 개인용 웹앱.
 
-First, run the development server:
+## 로컬 실행
 
 ```bash
+cd receipt-lens
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+브라우저에서 http://localhost:3000 접속.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 환경변수
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+`receipt-lens/.env.local` 파일을 만들고 아래 3개를 입력한다.
 
-## Learn More
+```bash
+GEMINI_API_KEY=AIza...
+GOOGLE_SPREADSHEET_ID=...
+GOOGLE_SHEET_NAME=시트1
+GOOGLE_SERVICE_ACCOUNT_KEY={"type":"service_account",...}
+```
 
-To learn more about Next.js, take a look at the following resources:
+| 변수 | 설명 |
+|------|------|
+| `GEMINI_API_KEY` | Google AI Studio에서 발급한 Gemini API 키 |
+| `GOOGLE_SPREADSHEET_ID` | 스프레드시트 URL의 `/d/` 뒤 문자열 |
+| `GOOGLE_SERVICE_ACCOUNT_KEY` | Service Account JSON 키를 한 줄로 직렬화한 문자열 |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Google Cloud 설정
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+**1. Service Account 생성**
 
-## Deploy on Vercel
+Google Cloud Console → IAM 및 관리자 → 서비스 계정 → 새 서비스 계정 생성.
+키 탭에서 JSON 키 파일 다운로드.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+**2. JSON 키 한 줄 직렬화**
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```powershell
+(Get-Content receipt-lens-sa.json -Raw) -replace "`r`n|`n", "" | Set-Clipboard
+```
+
+클립보드 내용을 `GOOGLE_SERVICE_ACCOUNT_KEY=` 뒤에 붙여넣는다.
+
+**3. Sheets에 서비스 계정 이메일 공유**
+
+Google Sheets → 공유 → 서비스 계정 이메일(`...@....iam.gserviceaccount.com`) 추가 → 편집자 권한 부여.
+
+## Gemini API 키 발급
+
+1. [Google AI Studio](https://aistudio.google.com) 접속
+2. 우측 상단 **Get API key** → **Create API key**
+3. 발급된 키를 `GEMINI_API_KEY`에 입력
+
+무료 한도: 일 250 RPD (예상 사용량: 하루 50회 미만).
