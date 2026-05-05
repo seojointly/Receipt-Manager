@@ -5,7 +5,7 @@
 | 1 | Sheet 링크 버튼 | ✅ 완료 |
 | 2 | 초기화 버튼 — 선택적 삭제 | ✅ 완료 |
 | 3 | 오늘 사용한 횟수 | ✅ 완료 |
-| 4 | 다중 이미지 업로드 | ⏳ 대기 |
+| 4 | 다중 이미지 업로드 | ✅ 완료 |
 | 5 | Google Sheets 양식 및 수동 편집 | ⏳ 대기 |
 | 6 | 전송 완료 시 이미지 자동 삭제 | ⏳ 대기 |
 | 7 | 스캐너 페이지 한 페이지 통합 | ⏳ 대기 |
@@ -16,3 +16,4 @@
 - **[항목 1]** .env.local에 NEXT_PUBLIC_GOOGLE_SHEET_URL 추가, 대시보드 SummaryCard 2열 그리드로 변경, Sheet 링크 카드 클릭 시 새 탭으로 스프레드시트 열기
 - **[항목 2]** localStorage를 DATA_KEY/IMAGE_KEY 두 키로 분리(QuotaExceededError 방지), clearSynced/clearFailed 추가, 초기화 버튼 + ClearModal(전송 완료/실패 선택 삭제) 구현
 - **[항목 3]** useDailyCount 훅 신규(DAILY_COUNT_KEY, 날짜 바뀌면 자동 초기화), 대시보드에 "오늘 사용한 횟수 n/30 + 남은 횟수" 카드 추가, 스캐너 분석 성공 시 increment() 호출, 한도 초과 시 업로드 비활성화 + 경고 메시지
+- **[항목 4]** ImageUploader 다중 선택(최대 3장, multiple 속성), 카메라 촬영 후 "추가 촬영|완료" 팝업 + 가로 썸네일 미리보기, scanner/page.tsx 전면 개편(ScanItem 배열 관리, 순차 분석, 이미지별 독립 ResultForm + 상태 표시)

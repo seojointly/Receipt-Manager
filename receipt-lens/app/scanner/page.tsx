@@ -3,132 +3,170 @@
 import { useRef, useState } from 'react'
 import Link from 'next/link'
 import { v4 as uuidv4 } from 'uuid'
-import { ArrowLeft, AlertCircle } from 'lucide-react'
+import { ArrowLeft, AlertCircle, RotateCcw } from 'lucide-react'
 import type { AnalyzeResult, Receipt } from '@/lib/types'
 import { useReceipts } from '@/hooks/useReceipts'
 import { useDailyCount } from '@/hooks/useDailyCount'
 import { ImageUploader } from '@/components/scanner/ImageUploader'
-import { PreviewPanel } from '@/components/scanner/PreviewPanel'
 import { ResultForm } from '@/components/scanner/ResultForm'
 import { Spinner } from '@/components/ui/Spinner'
+import { Button } from '@/components/ui/Button'
 
-type Phase = 'upload' | 'analyzing' | 'result'
+type ScanItemStatus = 'analyzing' | 'result' | 'error'
+
+interface ScanItem {
+  id: string
+  imageDataUrl: string
+  status: ScanItemStatus
+  analyzeResult: AnalyzeResult | null
+  error: string | null
+}
 
 export default function ScannerPage() {
   const { receipts, addReceipt, updateReceipt, removeReceipt } = useReceipts()
   const { todayCount, increment, limit } = useDailyCount()
-  const [phase, setPhase] = useState<Phase>('upload')
-  const [imageDataUrl, setImageDataUrl] = useState<string | null>(null)
-  const [analyzeResult, setAnalyzeResult] = useState<AnalyzeResult | null>(null)
-  const [currentId, setCurrentId] = useState<string | null>(null)
-  const [analyzeError, setAnalyzeError] = useState<string | null>(null)
+  const [phase, setPhase] = useState<'upload' | 'scanning'>('upload')
+  const [scanItems, setScanItems] = useState<ScanItem[]>([])
+  const [uploadError, setUploadError] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
   const isLimitReached = todayCount >= limit
 
-  async function handleImage(dataUrl: string) {
+  async function handleImages(images: string[]) {
     if (isLimitReached) return
 
     abortRef.current?.abort()
     const controller = new AbortController()
     abortRef.current = controller
 
-    setImageDataUrl(dataUrl)
-    setAnalyzeError(null)
+    setUploadError(null)
 
-    const id = uuidv4()
-    setCurrentId(id)
+    const newItems: ScanItem[] = images.map(img => ({
+      id: uuidv4(),
+      imageDataUrl: img,
+      status: 'analyzing',
+      analyzeResult: null,
+      error: null,
+    }))
 
-    const stub: Receipt = {
-      id,
-      date: '',
-      storeName: '',
-      supplyAmount: 0,
-      taxAmount: 0,
-      totalAmount: 0,
-      category: '',
-      memo: '',
-      imageBase64: dataUrl,
-      status: 'pending',
-      createdAt: new Date().toISOString(),
-    }
-    addReceipt(stub)
-    setPhase('analyzing')
-
-    try {
-      const res = await fetch('/api/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: dataUrl }),
-        signal: controller.signal,
+    newItems.forEach(item => {
+      addReceipt({
+        id: item.id,
+        date: '',
+        storeName: '',
+        supplyAmount: 0,
+        taxAmount: 0,
+        totalAmount: 0,
+        category: '',
+        memo: '',
+        imageBase64: item.imageDataUrl,
+        status: 'pending',
+        createdAt: new Date().toISOString(),
       })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || '분석에 실패했습니다.')
+    })
 
-      increment()
+    setScanItems(newItems)
+    setPhase('scanning')
 
-      const result: AnalyzeResult = data
-      setAnalyzeResult(result)
-      updateReceipt(id, {
-        date: result.date,
-        storeName: result.storeName,
-        supplyAmount: result.supplyAmount,
-        taxAmount: result.taxAmount,
-        totalAmount: result.totalAmount,
-      })
-      setPhase('result')
-    } catch (err) {
-      if ((err as { name?: string }).name === 'AbortError') return
-      removeReceipt(id)
-      setCurrentId(null)
-      setAnalyzeError(
-        err instanceof Error ? err.message : '영수증 분석에 실패했습니다. 다시 시도해 주세요.'
-      )
-      setPhase('upload')
+    let remaining = limit - todayCount
+
+    for (const item of newItems) {
+      if (controller.signal.aborted) break
+
+      if (remaining <= 0) {
+        setScanItems(prev =>
+          prev.map(i => i.id === item.id
+            ? { ...i, status: 'error', error: '오늘 사용 한도에 도달했습니다.' }
+            : i
+          )
+        )
+        removeReceipt(item.id)
+        continue
+      }
+
+      try {
+        const res = await fetch('/api/analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: item.imageDataUrl }),
+          signal: controller.signal,
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error || '분석에 실패했습니다.')
+
+        increment()
+        remaining--
+
+        const result: AnalyzeResult = data
+        setScanItems(prev =>
+          prev.map(i => i.id === item.id
+            ? { ...i, status: 'result', analyzeResult: result }
+            : i
+          )
+        )
+        updateReceipt(item.id, {
+          date: result.date,
+          storeName: result.storeName,
+          supplyAmount: result.supplyAmount,
+          taxAmount: result.taxAmount,
+          totalAmount: result.totalAmount,
+        })
+      } catch (err) {
+        if ((err as { name?: string }).name === 'AbortError') break
+        const message = err instanceof Error ? err.message : '분석에 실패했습니다.'
+        setScanItems(prev =>
+          prev.map(i => i.id === item.id
+            ? { ...i, status: 'error', error: message }
+            : i
+          )
+        )
+        removeReceipt(item.id)
+      }
     }
   }
 
   function handleReset() {
     abortRef.current?.abort()
-    if (currentId) removeReceipt(currentId)
+    scanItems.forEach(item => {
+      const receipt = receipts.find(r => r.id === item.id)
+      if (!receipt || receipt.status !== 'synced') {
+        removeReceipt(item.id)
+      }
+    })
+    setScanItems([])
     setPhase('upload')
-    setImageDataUrl(null)
-    setAnalyzeResult(null)
-    setCurrentId(null)
-    setAnalyzeError(null)
+    setUploadError(null)
   }
 
-  async function handleSync(category: string, memo: string) {
-    if (!currentId || !analyzeResult) return
+  function createSyncHandler(itemId: string, result: AnalyzeResult) {
+    return async (category: string, memo: string) => {
+      const res = await fetch('/api/sheets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: itemId,
+          date: result.date,
+          storeName: result.storeName,
+          category,
+          memo,
+          totalAmount: result.totalAmount,
+        }),
+      })
+      const data = await res.json()
 
-    const res = await fetch('/api/sheets', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        id: currentId,
-        date: analyzeResult.date,
-        storeName: analyzeResult.storeName,
+      if (!res.ok) {
+        updateReceipt(itemId, { status: 'error' })
+        throw new Error(data.error || '전송에 실패했습니다.')
+      }
+
+      updateReceipt(itemId, {
+        status: 'synced',
+        sheetsRowIndex: data.rowIndex,
         category,
         memo,
-        totalAmount: analyzeResult.totalAmount,
-      }),
-    })
-    const data = await res.json()
-
-    if (!res.ok) {
-      updateReceipt(currentId, { status: 'error' })
-      throw new Error(data.error || '전송에 실패했습니다.')
+      })
     }
-
-    updateReceipt(currentId, {
-      status: 'synced',
-      sheetsRowIndex: data.rowIndex,
-      category,
-      memo,
-    })
   }
-
-  const currentReceipt = currentId ? (receipts.find((r) => r.id === currentId) ?? null) : null
 
   return (
     <div className="min-h-screen bg-zinc-50">
@@ -154,30 +192,61 @@ export default function ScannerPage() {
                 <span>오늘 사용 한도에 도달했습니다. (일 {limit}회)</span>
               </div>
             )}
-            {analyzeError && (
+            {uploadError && (
               <div className="flex items-start gap-2 rounded-2xl bg-red-50 p-4 text-sm text-red-700">
                 <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                <span>{analyzeError}</span>
+                <span>{uploadError}</span>
               </div>
             )}
-            <ImageUploader onImage={handleImage} disabled={isLimitReached} />
+            <ImageUploader onImages={handleImages} disabled={isLimitReached} />
           </>
         )}
 
-        {phase === 'analyzing' && imageDataUrl && (
+        {phase === 'scanning' && (
           <>
-            <PreviewPanel src={imageDataUrl} onReset={handleReset} />
-            <div className="flex flex-col items-center gap-3 py-6">
-              <Spinner className="h-8 w-8" />
-              <p className="text-sm text-zinc-500">AI가 영수증을 분석하고 있습니다...</p>
+            <Button variant="secondary" onClick={handleReset} className="w-full">
+              <RotateCcw className="h-4 w-4" />
+              다시 촬영
+            </Button>
+
+            <div className="space-y-6">
+              {scanItems.map((item, idx) => {
+                const receipt = receipts.find(r => r.id === item.id)
+                return (
+                  <div key={item.id} className="space-y-3">
+                    <div className="overflow-hidden rounded-2xl border border-zinc-100 bg-zinc-50">
+                      <img
+                        src={item.imageDataUrl}
+                        alt={`영수증 ${idx + 1}`}
+                        className="mx-auto max-h-48 w-full object-contain"
+                      />
+                    </div>
+
+                    {item.status === 'analyzing' && (
+                      <div className="flex items-center gap-3 rounded-2xl border border-zinc-100 bg-white p-4">
+                        <Spinner className="h-5 w-5" />
+                        <p className="text-sm text-zinc-500">AI가 분석하고 있습니다...</p>
+                      </div>
+                    )}
+
+                    {item.status === 'error' && (
+                      <div className="flex items-start gap-2 rounded-2xl bg-red-50 p-4 text-sm text-red-600">
+                        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                        <span>{item.error}</span>
+                      </div>
+                    )}
+
+                    {item.status === 'result' && item.analyzeResult && receipt && (
+                      <ResultForm
+                        result={item.analyzeResult}
+                        receipt={receipt}
+                        onSync={createSyncHandler(item.id, item.analyzeResult)}
+                      />
+                    )}
+                  </div>
+                )
+              })}
             </div>
-          </>
-        )}
-
-        {phase === 'result' && imageDataUrl && analyzeResult && currentReceipt && (
-          <>
-            <PreviewPanel src={imageDataUrl} onReset={handleReset} />
-            <ResultForm result={analyzeResult} receipt={currentReceipt} onSync={handleSync} />
           </>
         )}
       </div>
