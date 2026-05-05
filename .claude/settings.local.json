@@ -5,7 +5,11 @@
       "Bash(Get-Content \"C:\\\\Users\\\\user\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-user-Desktop-001-IT-001-VibeCoding-004----------\\\\d6fc02a1-4d60-4d76-906f-05c0306a52c3\\\\tasks\\\\brsx5h33y.output\" -Wait)",
       "Bash(Select-String -Pattern \"Success|error|Done|created|failed|npm warn|✓|✔\")",
       "Bash(npm install *)",
-      "Bash(Get-Content *)"
+      "Bash(Get-Content *)",
+      "Bash(npx tsc *)",
+      "Bash(Select-Object -First 50)",
+      "Bash(Get-ChildItem -Recurse \"C:\\\\Users\\\\user\\\\Desktop\\\\001.IT\\\\001.VibeCoding\\\\004. 영수증 관리 앱\\\\receipt-lens\\\\app\" -File)",
+      "Bash(Select-Object FullName)"
     ]
   }
 }
