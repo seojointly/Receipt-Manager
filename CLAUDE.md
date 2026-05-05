@@ -59,15 +59,18 @@ npm run lint
 ```
 사용자 이미지 업로드 (5MB 이하, 클라이언트 단 차단)
   → (client) File → base64 data URL 변환 ("data:image/jpeg;base64,...")
+  → stub Receipt(status:'pending') 즉시 localStorage에 저장 (새로고침 대비)
   → POST /api/analyze { image: "<data URL>" }
     → (server) data URL에서 mimeType 추출 + Gemini Vision 호출
     → parseCurrency + ReceiptSchema 검증
     → AnalyzeResult JSON 반환
-  → (client) 사용자가 결과 확인/수정 후 localStorage에 pending 상태로 저장
+  → (client) stub을 실제 데이터로 updateReceipt, ResultForm 표시
+    → 분석 실패 시: stub removeReceipt, 에러 박스 표시
   → POST /api/sheets { <Receipt 객체> }
     → (server) checkDuplicate → appendReceiptToSheet (실패 시 1회 재시도)
     → { success: true, rowIndex } 반환
   → (client) localStorage 상태를 synced로 업데이트
+    → 전송 실패 시: status: 'error' 업데이트
 ```
 
 ### 서버/클라이언트 경계
@@ -96,11 +99,11 @@ npm run lint
 ### 구현 상태
 
 ```
-app/
-  page.tsx              — 🔲 Next.js 기본 템플릿 (대시보드 UI 미구현)
-  scanner/page.tsx      — 🔲 빈 파일 (스캐너 UI 미구현)
-  api/analyze/route.ts  — ✅ 구현 완료
-  api/sheets/route.ts   — ✅ 구현 완료
+app/                    — ✅ 전부 구현 완료
+  page.tsx              — 대시보드 (요약 카드 3개 + ReceiptList + 스캔 버튼)
+  scanner/page.tsx      — 스캐너 (Phase 상태머신: upload→analyzing→result)
+  api/analyze/route.ts  — base64 → Gemini → AnalyzeResult
+  api/sheets/route.ts   — Receipt → Google Sheets (중복 방지)
 
 lib/                    — ✅ 전부 구현 완료 (서버 전용)
   types.ts              — Receipt, AnalyzeResult, ApiError 타입
@@ -123,6 +126,19 @@ components/             — ✅ 전부 구현 완료
   dashboard/ReceiptRow.tsx   — 상호명/날짜/금액/Badge 행
   dashboard/ReceiptList.tsx  — ReceiptRow 목록 + 빈 상태 처리
 ```
+
+### 스캐너 페이지 아키텍처 (`app/scanner/page.tsx`)
+
+**Phase 상태머신**: `'upload' → 'analyzing' → 'result'`
+
+- **upload**: ImageUploader 표시. 분석 실패 시 이 단계로 복귀하며 에러 박스 표시.
+- **analyzing**: PreviewPanel + Spinner. 재촬영 버튼으로 요청 중단 가능(AbortController).
+- **result**: PreviewPanel + ResultForm. ResultForm의 `receipt` prop은 `receipts.find(id)`로 live 상태를 구독하여 전송 완료 즉시 버튼이 비활성화됨.
+
+**핵심 패턴**:
+- 이미지 선택 즉시 stub receipt(`date:''`, `storeName:''`, amounts 0) 추가 → 분석 실패 시 `removeReceipt`로 삭제
+- `useReceipts()`의 `receipts` 배열에서 `currentId`로 조회하여 receipt 상태 추적 (로컬 state 아님)
+- `AbortController`로 분석 중 재촬영 시 fetch 취소
 
 ### Components API (주요 props)
 
