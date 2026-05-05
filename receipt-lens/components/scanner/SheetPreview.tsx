@@ -38,7 +38,7 @@ export const SheetPreview = forwardRef<SheetPreviewHandle>(function SheetPreview
   return (
     <div className="rounded-2xl border border-zinc-100 bg-white p-4 space-y-3">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-zinc-500">Sheet 미리보기</p>
+        <p className="text-sm text-zinc-500">오늘 Sheet 미리보기</p>
         <Button
           variant="ghost"
           onClick={fetchRows}
@@ -61,7 +61,7 @@ export const SheetPreview = forwardRef<SheetPreviewHandle>(function SheetPreview
       )}
 
       {!loading && !error && rows.length === 0 && (
-        <p className="py-2 text-center text-sm text-zinc-400">데이터가 없습니다.</p>
+        <p className="py-2 text-center text-sm text-zinc-400">오늘 등록된 데이터가 없습니다.</p>
       )}
 
       {!loading && !error && rows.length > 0 && (

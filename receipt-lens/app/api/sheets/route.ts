@@ -28,8 +28,9 @@ export async function GET() {
     })
 
     const rows = res.data.values ?? []
-    // 첫 행(헤더) 제외, 최근 5행만 역순으로 반환
-    const data = rows.slice(1).slice(-5).reverse()
+    // 오늘(KST) 날짜와 일치하는 행만 필터링 후 역순(최신순) 반환
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' }) // YYYY-MM-DD
+    const data = rows.slice(1).filter(row => row[1] === today).reverse()
 
     return NextResponse.json({ rows: data })
   } catch (err) {
