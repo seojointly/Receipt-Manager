@@ -6,6 +6,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { ArrowLeft, AlertCircle } from 'lucide-react'
 import type { AnalyzeResult, Receipt } from '@/lib/types'
 import { useReceipts } from '@/hooks/useReceipts'
+import { useDailyCount } from '@/hooks/useDailyCount'
 import { ImageUploader } from '@/components/scanner/ImageUploader'
 import { PreviewPanel } from '@/components/scanner/PreviewPanel'
 import { ResultForm } from '@/components/scanner/ResultForm'
@@ -15,6 +16,7 @@ type Phase = 'upload' | 'analyzing' | 'result'
 
 export default function ScannerPage() {
   const { receipts, addReceipt, updateReceipt, removeReceipt } = useReceipts()
+  const { todayCount, increment, limit } = useDailyCount()
   const [phase, setPhase] = useState<Phase>('upload')
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null)
   const [analyzeResult, setAnalyzeResult] = useState<AnalyzeResult | null>(null)
@@ -22,7 +24,11 @@ export default function ScannerPage() {
   const [analyzeError, setAnalyzeError] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
+  const isLimitReached = todayCount >= limit
+
   async function handleImage(dataUrl: string) {
+    if (isLimitReached) return
+
     abortRef.current?.abort()
     const controller = new AbortController()
     abortRef.current = controller
@@ -58,6 +64,8 @@ export default function ScannerPage() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || '분석에 실패했습니다.')
+
+      increment()
 
       const result: AnalyzeResult = data
       setAnalyzeResult(result)
@@ -140,13 +148,19 @@ export default function ScannerPage() {
 
         {phase === 'upload' && (
           <>
+            {isLimitReached && (
+              <div className="flex items-start gap-2 rounded-2xl bg-amber-50 p-4 text-sm text-amber-700">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>오늘 사용 한도에 도달했습니다. (일 {limit}회)</span>
+              </div>
+            )}
             {analyzeError && (
               <div className="flex items-start gap-2 rounded-2xl bg-red-50 p-4 text-sm text-red-700">
                 <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
                 <span>{analyzeError}</span>
               </div>
             )}
-            <ImageUploader onImage={handleImage} />
+            <ImageUploader onImage={handleImage} disabled={isLimitReached} />
           </>
         )}
 

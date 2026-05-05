@@ -2,8 +2,9 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { CircleDollarSign, CheckCircle2, Clock, ExternalLink, Trash2 } from 'lucide-react'
+import { CircleDollarSign, CheckCircle2, Clock, ExternalLink, Trash2, Zap } from 'lucide-react'
 import { useReceipts } from '@/hooks/useReceipts'
+import { useDailyCount } from '@/hooks/useDailyCount'
 import { SummaryCard } from '@/components/dashboard/SummaryCard'
 import { ReceiptList } from '@/components/dashboard/ReceiptList'
 import { ClearModal } from '@/components/dashboard/ClearModal'
@@ -13,6 +14,7 @@ const SHEET_URL = process.env.NEXT_PUBLIC_GOOGLE_SHEET_URL
 
 export default function DashboardPage() {
   const { receipts, totalSynced, syncedCount, pendingCount, isLoaded, clearSynced, clearFailed } = useReceipts()
+  const { todayCount, limit } = useDailyCount()
   const [showClearModal, setShowClearModal] = useState(false)
 
   if (!isLoaded) return null
@@ -52,6 +54,12 @@ export default function DashboardPage() {
             label="Sheet 링크"
             value="스프레드시트"
             onClick={SHEET_URL ? () => window.open(SHEET_URL, '_blank', 'noopener,noreferrer') : undefined}
+          />
+          <SummaryCard
+            icon={Zap}
+            label="오늘 사용한 횟수"
+            value={`${todayCount} / ${limit}`}
+            subtext={`오늘 남은 횟수: ${limit - todayCount}회`}
           />
         </div>
 
