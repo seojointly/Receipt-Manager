@@ -4,44 +4,45 @@ import { useState } from 'react'
 import { AlertCircle } from 'lucide-react'
 import type { Receipt, AnalyzeResult } from '@/lib/types'
 import { Button } from '@/components/ui/Button'
+import { CATEGORIES } from '@/lib/categories'
 
-const CATEGORIES = ['식비', '교통비', '업무비', '의료비', '생활용품', '의류/미용', '교육비', '문화/여가', '기타']
+export interface SyncData {
+  date: string
+  storeName: string
+  category: string
+  memo: string
+  totalAmount: number
+}
 
 interface ResultFormProps {
   result: AnalyzeResult
   receipt: Receipt
-  onSync: (category: string, memo: string) => Promise<void>
+  onSync: (data: SyncData) => Promise<void>
 }
 
-function formatKRW(amount: number) {
-  return amount.toLocaleString('ko-KR') + '원'
-}
-
-function Row({ label, value, bold = false }: { label: string; value: string; bold?: boolean }) {
-  return (
-    <div className="flex justify-between">
-      <span className="text-zinc-500">{label}</span>
-      <span className={bold ? 'font-semibold text-zinc-900' : 'text-zinc-800'}>{value}</span>
-    </div>
-  )
-}
+const inputClass =
+  'w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-sm text-zinc-800 focus:outline-none focus:border-zinc-400 disabled:cursor-not-allowed disabled:text-zinc-400'
 
 export function ResultForm({ result, receipt, onSync }: ResultFormProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [cooldown, setCooldown] = useState(false)
-  const [category, setCategory] = useState('기타')
+  const [date, setDate] = useState(result.date)
+  const [storeName, setStoreName] = useState(result.storeName)
+  const [category, setCategory] = useState(CATEGORIES[0] ?? '')
   const [memo, setMemo] = useState('')
+  const [totalAmount, setTotalAmount] = useState(result.totalAmount)
 
   const isSynced = receipt.status === 'synced'
+  const isValidTotal = Number.isInteger(totalAmount) && totalAmount % 10 === 0
 
   async function handleSync() {
-    if (isSynced || loading || cooldown) return
+    if (isSynced || loading || cooldown || !isValidTotal) return
     setError(null)
     setLoading(true)
     setCooldown(true)
     try {
-      await onSync(category, memo)
+      await onSync({ date, storeName, category, memo, totalAmount })
     } catch (err) {
       setError(err instanceof Error ? err.message : '전송에 실패했습니다.')
     } finally {
@@ -53,40 +54,71 @@ export function ResultForm({ result, receipt, onSync }: ResultFormProps) {
   return (
     <div className="space-y-4 rounded-2xl border border-zinc-100 bg-white p-4">
       <div className="space-y-2 text-sm">
-        <Row label="날짜" value={result.date} />
-        <Row label="상호명" value={result.storeName} />
-        <Row label="공급가액" value={formatKRW(result.supplyAmount)} />
-        <Row label="부가세" value={formatKRW(result.taxAmount)} />
-        <Row label="합계" value={formatKRW(result.totalAmount)} bold />
-      </div>
+        <div className="flex items-center gap-3">
+          <span className="w-14 shrink-0 text-zinc-500">날짜</span>
+          <input
+            type="date"
+            value={date}
+            onChange={e => setDate(e.target.value)}
+            disabled={isSynced}
+            className={inputClass}
+          />
+        </div>
 
-      <div className="space-y-2">
-        <div className="flex flex-col gap-1">
-          <label className="text-xs text-zinc-500">항목</label>
+        <div className="flex items-center gap-3">
+          <span className="w-14 shrink-0 text-zinc-500">상호명</span>
+          <input
+            type="text"
+            value={storeName}
+            onChange={e => setStoreName(e.target.value)}
+            disabled={isSynced}
+            placeholder="상호명"
+            className={inputClass}
+          />
+        </div>
+
+        <div className="flex items-center gap-3">
+          <span className="w-14 shrink-0 text-zinc-500">항목</span>
           <select
             value={category}
-            onChange={(e) => setCategory(e.target.value)}
+            onChange={e => setCategory(e.target.value)}
             disabled={isSynced}
-            className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-800 disabled:cursor-not-allowed disabled:text-zinc-400"
+            className={inputClass}
           >
-            {CATEGORIES.map((c) => (
+            {CATEGORIES.map(c => (
               <option key={c} value={c}>{c}</option>
             ))}
           </select>
         </div>
 
-        <div className="flex flex-col gap-1">
-          <label className="text-xs text-zinc-500">메모</label>
-          <input
-            type="text"
+        <div className="flex items-start gap-3">
+          <span className="w-14 shrink-0 pt-2 text-zinc-500">메모</span>
+          <textarea
+            rows={2}
             value={memo}
-            onChange={(e) => setMemo(e.target.value)}
+            onChange={e => setMemo(e.target.value)}
             disabled={isSynced}
             placeholder="메모 입력 (선택)"
-            className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-800 placeholder:text-zinc-400 disabled:cursor-not-allowed disabled:text-zinc-400"
+            className={`${inputClass} resize-none`}
+          />
+        </div>
+
+        <div className="flex items-center gap-3">
+          <span className="w-14 shrink-0 font-medium text-zinc-500">합계</span>
+          <input
+            type="number"
+            step={10}
+            value={totalAmount}
+            onChange={e => setTotalAmount(Number(e.target.value))}
+            disabled={isSynced}
+            className={`${inputClass} font-semibold text-zinc-900`}
           />
         </div>
       </div>
+
+      {!isValidTotal && !isSynced && (
+        <p className="text-xs text-amber-600">합계는 10원 단위여야 합니다</p>
+      )}
 
       {error && (
         <div className="flex items-start gap-2 rounded-xl bg-red-50 p-3 text-sm text-red-700">
@@ -95,8 +127,13 @@ export function ResultForm({ result, receipt, onSync }: ResultFormProps) {
         </div>
       )}
 
-      <Button onClick={handleSync} loading={loading} disabled={isSynced || cooldown} className="w-full">
-        {isSynced ? '이미 전송됨' : 'Google Sheets에 전송'}
+      <Button
+        onClick={handleSync}
+        loading={loading}
+        disabled={isSynced || cooldown || !isValidTotal}
+        className="w-full"
+      >
+        {isSynced ? '완료되었습니다.' : 'Google Sheets에 전송'}
       </Button>
     </div>
   )

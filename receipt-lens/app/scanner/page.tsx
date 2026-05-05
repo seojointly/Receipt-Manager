@@ -2,9 +2,11 @@
 
 import { useRef, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { v4 as uuidv4 } from 'uuid'
-import { ArrowLeft, AlertCircle, RotateCcw } from 'lucide-react'
+import { ArrowLeft, AlertCircle, RotateCcw, Home } from 'lucide-react'
 import type { AnalyzeResult, Receipt } from '@/lib/types'
+import type { SyncData } from '@/components/scanner/ResultForm'
 import { useReceipts } from '@/hooks/useReceipts'
 import { useDailyCount } from '@/hooks/useDailyCount'
 import { ImageUploader } from '@/components/scanner/ImageUploader'
@@ -23,6 +25,7 @@ interface ScanItem {
 }
 
 export default function ScannerPage() {
+  const router = useRouter()
   const { receipts, addReceipt, updateReceipt, removeReceipt } = useReceipts()
   const { todayCount, increment, limit } = useDailyCount()
   const [phase, setPhase] = useState<'upload' | 'scanning'>('upload')
@@ -138,32 +141,32 @@ export default function ScannerPage() {
     setUploadError(null)
   }
 
-  function createSyncHandler(itemId: string, result: AnalyzeResult) {
-    return async (category: string, memo: string) => {
+  function handleHome() {
+    handleReset()
+    router.push('/')
+  }
+
+  function createSyncHandler(itemId: string) {
+    return async (data: SyncData) => {
       const res = await fetch('/api/sheets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: itemId,
-          date: result.date,
-          storeName: result.storeName,
-          category,
-          memo,
-          totalAmount: result.totalAmount,
-        }),
+        body: JSON.stringify({ id: itemId, ...data }),
       })
-      const data = await res.json()
+      const resData = await res.json()
 
       if (!res.ok) {
         updateReceipt(itemId, { status: 'error' })
-        throw new Error(data.error || '전송에 실패했습니다.')
+        throw new Error(resData.error || '전송에 실패했습니다.')
       }
 
+      // 항목 6: 전송 성공 후 이미지 삭제 (imageBase64: undefined → saveToStorage에서 imageMap에서 제외)
       updateReceipt(itemId, {
         status: 'synced',
-        sheetsRowIndex: data.rowIndex,
-        category,
-        memo,
+        sheetsRowIndex: resData.rowIndex,
+        category: data.category,
+        memo: data.memo,
+        imageBase64: undefined,
       })
     }
   }
@@ -204,12 +207,18 @@ export default function ScannerPage() {
 
         {phase === 'scanning' && (
           <>
-            <Button variant="secondary" onClick={handleReset} className="w-full">
-              <RotateCcw className="h-4 w-4" />
-              다시 촬영
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="secondary" onClick={handleReset} className="flex-1">
+                <RotateCcw className="h-4 w-4" />
+                재촬영
+              </Button>
+              <Button variant="secondary" onClick={handleHome} className="flex-1">
+                <Home className="h-4 w-4" />
+                처음으로
+              </Button>
+            </div>
 
-            <div className="space-y-6">
+            <div className="space-y-8">
               {scanItems.map((item, idx) => {
                 const receipt = receipts.find(r => r.id === item.id)
                 return (
@@ -240,14 +249,32 @@ export default function ScannerPage() {
                       <ResultForm
                         result={item.analyzeResult}
                         receipt={receipt}
-                        onSync={createSyncHandler(item.id, item.analyzeResult)}
+                        onSync={createSyncHandler(item.id)}
                       />
+                    )}
+
+                    {idx < scanItems.length - 1 && (
+                      <hr className="border-zinc-200" />
                     )}
                   </div>
                 )
               })}
             </div>
           </>
+        )}
+
+        {process.env.NEXT_PUBLIC_GOOGLE_SHEET_URL && (
+          <div className="rounded-2xl border border-zinc-100 bg-white p-4">
+            <p className="mb-2 text-sm text-zinc-500">Sheet 미리보기</p>
+            <a
+              href={process.env.NEXT_PUBLIC_GOOGLE_SHEET_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm text-blue-500 underline"
+            >
+              Google Sheets 열기 →
+            </a>
+          </div>
         )}
       </div>
     </div>
