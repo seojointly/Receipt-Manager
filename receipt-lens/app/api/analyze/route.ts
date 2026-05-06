@@ -2,6 +2,25 @@ import { NextRequest, NextResponse } from 'next/server'
 import { model, RECEIPT_SYSTEM_PROMPT } from '@/lib/gemini'
 import { ReceiptSchema, parseCurrency } from '@/lib/validators'
 
+const delay = (ms: number) => new Promise(r => setTimeout(r, ms))
+
+const callGemini = async (mimeType: string, data: string, retry = 0): Promise<string> => {
+  try {
+    const result = await model.generateContent([
+      { inlineData: { mimeType, data } },
+      RECEIPT_SYSTEM_PROMPT,
+    ])
+    return result.response.text()
+  } catch (err: unknown) {
+    const status = (err as { status?: number })?.status
+    if (status === 503 && retry < 1) {
+      await delay(2000)
+      return callGemini(mimeType, data, retry + 1)
+    }
+    throw err
+  }
+}
+
 export async function POST(req: NextRequest) {
   let body: { image?: string }
   try {
@@ -23,11 +42,7 @@ export async function POST(req: NextRequest) {
     if (process.env.NODE_ENV === 'development') {
       console.warn('⚠️ COST_GUARD: Gemini API called')
     }
-    const result = await model.generateContent([
-      { inlineData: { mimeType, data } },
-      RECEIPT_SYSTEM_PROMPT,
-    ])
-    text = result.response.text()
+    text = await callGemini(mimeType, data)
   } catch {
     return NextResponse.json(
       { error: 'AI 분석 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.', code: 'API_ERROR' },
