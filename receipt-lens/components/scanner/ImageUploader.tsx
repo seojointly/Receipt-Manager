@@ -9,13 +9,13 @@ interface ImageUploaderProps {
   disabled?: boolean
 }
 
-const MAX_SIZE = 5 * 1024 * 1024
+const MAX_SIZE = 20 * 1024 * 1024
 const MAX_IMAGES = 3
 
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     if (file.size > MAX_SIZE) {
-      reject(new Error(`'${file.name}' 파일이 5MB를 초과합니다.`))
+      reject(new Error(`'${file.name}' 파일이 20MB를 초과합니다.`))
       return
     }
     const reader = new FileReader()
