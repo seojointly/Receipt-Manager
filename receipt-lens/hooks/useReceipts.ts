@@ -2,46 +2,24 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import type { Receipt } from '@/lib/types'
+import { saveImage, deleteImage, clearAllImages } from '@/lib/imageDB'
 
 const DATA_KEY = 'receipt_lens_data'
-const IMAGE_KEY = 'receipt_lens_images'
-
-type ReceiptData = Omit<Receipt, 'imageBase64'>
-type ImageMap = Record<string, string>
 
 function loadFromStorage(): Receipt[] {
   if (typeof window === 'undefined') return []
   try {
-    const rawData = localStorage.getItem(DATA_KEY)
-    const rawImages = localStorage.getItem(IMAGE_KEY)
-    const dataArr: ReceiptData[] = rawData ? JSON.parse(rawData) : []
-    const imageMap: ImageMap = rawImages ? JSON.parse(rawImages) : {}
-    return dataArr.map(r => ({ ...r, imageBase64: imageMap[r.id] }))
+    const raw = localStorage.getItem(DATA_KEY)
+    return raw ? JSON.parse(raw) : []
   } catch {
     return []
   }
 }
 
 function saveToStorage(receipts: Receipt[]) {
-  const dataArr: ReceiptData[] = receipts.map(r => ({
-    id: r.id,
-    date: r.date,
-    storeName: r.storeName,
-    supplyAmount: r.supplyAmount,
-    taxAmount: r.taxAmount,
-    totalAmount: r.totalAmount,
-    category: r.category,
-    memo: r.memo,
-    status: r.status,
-    createdAt: r.createdAt,
-    ...(r.sheetsRowIndex !== undefined ? { sheetsRowIndex: r.sheetsRowIndex } : {}),
-  }))
-  const imageMap: ImageMap = {}
-  receipts.forEach(r => {
-    if (r.imageBase64) imageMap[r.id] = r.imageBase64
-  })
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const dataArr = receipts.map(({ imageBase64: _, ...r }) => r)
   localStorage.setItem(DATA_KEY, JSON.stringify(dataArr))
-  localStorage.setItem(IMAGE_KEY, JSON.stringify(imageMap))
 }
 
 export function useReceipts() {
@@ -49,6 +27,22 @@ export function useReceipts() {
   const [isLoaded, setIsLoaded] = useState(false)
 
   useEffect(() => {
+    // 기존 localStorage 이미지 → IndexedDB 1회 마이그레이션
+    const migrate = async () => {
+      const old = localStorage.getItem('receipt_lens_images')
+      if (!old) return
+      try {
+        const map: Record<string, string> = JSON.parse(old)
+        for (const [id, base64] of Object.entries(map)) {
+          await saveImage(id, base64)
+        }
+        localStorage.removeItem('receipt_lens_images')
+      } catch {
+        console.warn('[migration] IndexedDB 마이그레이션 실패')
+      }
+    }
+    migrate()
+
     setReceipts(loadFromStorage())
     setIsLoaded(true)
   }, [])
@@ -59,26 +53,43 @@ export function useReceipts() {
   }, [receipts, isLoaded])
 
   const addReceipt = useCallback((receipt: Receipt) => {
-    setReceipts(prev => [receipt, ...prev])
+    const { imageBase64, ...receiptData } = receipt
+    if (imageBase64) {
+      saveImage(receipt.id, imageBase64).catch(() => {})
+    }
+    setReceipts(prev => [receiptData as Receipt, ...prev])
   }, [])
 
   const updateReceipt = useCallback((id: string, patch: Partial<Receipt>) => {
-    setReceipts(prev => prev.map(r => r.id === id ? { ...r, ...patch } : r))
+    if (patch.status === 'synced') {
+      deleteImage(id).catch(() => {})
+    }
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { imageBase64: _, ...safePatch } = patch
+    setReceipts(prev => prev.map(r => r.id === id ? { ...r, ...safePatch } : r))
   }, [])
 
   const removeReceipt = useCallback((id: string) => {
+    deleteImage(id).catch(() => {})
     setReceipts(prev => prev.filter(r => r.id !== id))
   }, [])
 
   const clearSynced = useCallback(() => {
-    setReceipts(prev => prev.filter(r => r.status !== 'synced'))
+    setReceipts(prev => {
+      prev.filter(r => r.status === 'synced').forEach(r => deleteImage(r.id).catch(() => {}))
+      return prev.filter(r => r.status !== 'synced')
+    })
   }, [])
 
   const clearFailed = useCallback((id?: string) => {
     if (id) {
+      deleteImage(id).catch(() => {})
       setReceipts(prev => prev.filter(r => r.id !== id))
     } else {
-      setReceipts(prev => prev.filter(r => r.status === 'synced'))
+      setReceipts(prev => {
+        prev.filter(r => r.status !== 'synced').forEach(r => deleteImage(r.id).catch(() => {}))
+        return prev.filter(r => r.status === 'synced')
+      })
     }
   }, [])
 

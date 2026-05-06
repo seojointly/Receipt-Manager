@@ -180,3 +180,6 @@ GOOGLE_SERVICE_ACCOUNT_KEY={"type":"service_account",...}  # JSON 한 줄 직렬
 ## 디자인 원칙
 
 `bg-zinc-50` 배경, `bg-white` 카드, `rounded-2xl`, 모바일 우선 `max-w-lg mx-auto`.
+
+## 참고 문서
+- [SETUP.md](./SETUP.md): 인프라 설정 가이드 (IndexedDB, Cloudflare Tunnel)
