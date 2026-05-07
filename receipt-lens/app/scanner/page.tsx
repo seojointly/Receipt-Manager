@@ -7,6 +7,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { ArrowLeft, AlertCircle, RotateCcw, Home } from 'lucide-react'
 import type { AnalyzeResult } from '@/lib/types'
 import type { SyncData } from '@/components/scanner/ResultForm'
+import { CATEGORIES } from '@/lib/categories'
 import type { SheetPreviewHandle } from '@/components/scanner/SheetPreview'
 import { useReceipts } from '@/hooks/useReceipts'
 import { useDailyCount } from '@/hooks/useDailyCount'
@@ -33,10 +34,18 @@ export default function ScannerPage() {
   const [phase, setPhase] = useState<'upload' | 'scanning'>('upload')
   const [scanItems, setScanItems] = useState<ScanItem[]>([])
   const [uploadError, setUploadError] = useState<string | null>(null)
+  const [isBulkUploading, setIsBulkUploading] = useState(false)
+  const [bulkProgress, setBulkProgress] = useState<{ current: number; total: number } | null>(null)
+  const [bulkResult, setBulkResult] = useState<{ success: number; failed: number } | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const previewRef = useRef<SheetPreviewHandle>(null)
 
   const isLimitReached = todayCount >= limit
+
+  const bulkEligibleItems = scanItems.filter(item => {
+    const receipt = receipts.find(r => r.id === item.id)
+    return item.status === 'result' && item.analyzeResult !== null && receipt?.status !== 'synced'
+  })
 
   async function handleImages(images: string[]) {
     if (isLimitReached) return
@@ -142,11 +151,66 @@ export default function ScannerPage() {
     setScanItems([])
     setPhase('upload')
     setUploadError(null)
+    setIsBulkUploading(false)
+    setBulkProgress(null)
+    setBulkResult(null)
   }
 
   function handleHome() {
     handleReset()
     router.push('/')
+  }
+
+  async function handleRetry(item: ScanItem) {
+    if (isLimitReached) return
+
+    addReceipt({
+      id: item.id,
+      date: '',
+      storeName: '',
+      supplyAmount: 0,
+      taxAmount: 0,
+      totalAmount: 0,
+      category: '',
+      memo: '',
+      imageBase64: item.imageDataUrl,
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+    })
+
+    setScanItems(prev =>
+      prev.map(i => i.id === item.id ? { ...i, status: 'analyzing', error: null } : i)
+    )
+
+    try {
+      const res = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: item.imageDataUrl }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || '분석에 실패했습니다.')
+
+      increment()
+
+      const result: AnalyzeResult = data
+      setScanItems(prev =>
+        prev.map(i => i.id === item.id ? { ...i, status: 'result', analyzeResult: result } : i)
+      )
+      updateReceipt(item.id, {
+        date: result.date,
+        storeName: result.storeName,
+        supplyAmount: result.supplyAmount,
+        taxAmount: result.taxAmount,
+        totalAmount: result.totalAmount,
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '분석에 실패했습니다.'
+      setScanItems(prev =>
+        prev.map(i => i.id === item.id ? { ...i, status: 'error', error: message } : i)
+      )
+      removeReceipt(item.id)
+    }
   }
 
   function createSyncHandler(itemId: string) {
@@ -174,6 +238,55 @@ export default function ScannerPage() {
       // 전송 성공 후 Sheet 미리보기 자동 갱신
       previewRef.current?.refresh()
     }
+  }
+
+  async function handleBulkSync() {
+    if (isBulkUploading || bulkEligibleItems.length === 0) return
+
+    setIsBulkUploading(true)
+    setBulkResult(null)
+    setBulkProgress({ current: 0, total: bulkEligibleItems.length })
+
+    let successCount = 0
+    let failCount = 0
+
+    for (let i = 0; i < bulkEligibleItems.length; i++) {
+      const item = bulkEligibleItems[i]
+      setBulkProgress({ current: i + 1, total: bulkEligibleItems.length })
+
+      try {
+        const res = await fetch('/api/sheets', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: item.id,
+            date: item.analyzeResult!.date,
+            storeName: item.analyzeResult!.storeName,
+            category: CATEGORIES[0] ?? '',
+            memo: '',
+            totalAmount: item.analyzeResult!.totalAmount,
+          }),
+        })
+        const resData = await res.json()
+        if (!res.ok) throw new Error(resData.error || '전송에 실패했습니다.')
+
+        updateReceipt(item.id, {
+          status: 'synced',
+          sheetsRowIndex: resData.rowIndex,
+          category: CATEGORIES[0] ?? '',
+          imageBase64: undefined,
+        })
+        successCount++
+      } catch {
+        updateReceipt(item.id, { status: 'error' })
+        failCount++
+      }
+    }
+
+    previewRef.current?.refresh()
+    setIsBulkUploading(false)
+    setBulkProgress(null)
+    setBulkResult({ success: successCount, failed: failCount })
   }
 
   return (
@@ -223,6 +336,29 @@ export default function ScannerPage() {
               </Button>
             </div>
 
+            {(bulkEligibleItems.length >= 2 || bulkResult) && (
+              <div className="rounded-2xl border border-zinc-100 bg-white p-4 space-y-2">
+                {bulkEligibleItems.length >= 2 && (
+                  <Button
+                    onClick={handleBulkSync}
+                    disabled={isBulkUploading}
+                    className="w-full"
+                  >
+                    {isBulkUploading && bulkProgress
+                      ? `업로드 중... ${bulkProgress.current}/${bulkProgress.total}`
+                      : `전체 Sheets 업로드 (${bulkEligibleItems.length}건)`}
+                  </Button>
+                )}
+                {bulkResult && (
+                  <p className={`text-sm text-center ${bulkResult.failed === 0 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                    {bulkResult.failed === 0
+                      ? `${bulkResult.success}건 모두 업로드 완료`
+                      : `${bulkResult.success}건 성공 / ${bulkResult.failed}건 실패`}
+                  </p>
+                )}
+              </div>
+            )}
+
             <div className="space-y-8">
               {scanItems.map((item, idx) => {
                 const receipt = receipts.find(r => r.id === item.id)
@@ -244,9 +380,19 @@ export default function ScannerPage() {
                     )}
 
                     {item.status === 'error' && (
-                      <div className="flex items-start gap-2 rounded-2xl bg-red-50 p-4 text-sm text-red-600">
-                        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                        <span>{item.error}</span>
+                      <div className="space-y-3 rounded-2xl bg-red-50 p-4 text-sm text-red-600">
+                        <div className="flex items-start gap-2">
+                          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                          <span>{item.error}</span>
+                        </div>
+                        <Button
+                          variant="danger"
+                          className="w-full"
+                          onClick={() => handleRetry(item)}
+                          disabled={isLimitReached}
+                        >
+                          재시도
+                        </Button>
                       </div>
                     )}
 

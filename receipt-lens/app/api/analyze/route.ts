@@ -13,8 +13,8 @@ const callGemini = async (mimeType: string, data: string, retry = 0): Promise<st
     return result.response.text()
   } catch (err: unknown) {
     const status = (err as { status?: number })?.status
-    if (status === 503 && retry < 1) {
-      await delay(2000)
+    if (status === 503 && retry < 3) {
+      await delay(2000 * Math.pow(2, retry)) // 2s → 4s → 8s
       return callGemini(mimeType, data, retry + 1)
     }
     throw err
@@ -43,7 +43,8 @@ export async function POST(req: NextRequest) {
       console.warn('⚠️ COST_GUARD: Gemini API called')
     }
     text = await callGemini(mimeType, data)
-  } catch {
+  } catch (err) {
+    console.error('[/api/analyze] Gemini error:', err)
     return NextResponse.json(
       { error: 'AI 분석 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.', code: 'API_ERROR' },
       { status: 500 }
