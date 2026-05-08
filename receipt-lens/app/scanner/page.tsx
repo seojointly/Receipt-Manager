@@ -336,29 +336,6 @@ export default function ScannerPage() {
               </Button>
             </div>
 
-            {(bulkEligibleItems.length >= 2 || bulkResult) && (
-              <div className="rounded-2xl border border-zinc-100 bg-white p-4 space-y-2">
-                {bulkEligibleItems.length >= 2 && (
-                  <Button
-                    onClick={handleBulkSync}
-                    disabled={isBulkUploading}
-                    className="w-full"
-                  >
-                    {isBulkUploading && bulkProgress
-                      ? `업로드 중... ${bulkProgress.current}/${bulkProgress.total}`
-                      : `전체 Sheets 업로드 (${bulkEligibleItems.length}건)`}
-                  </Button>
-                )}
-                {bulkResult && (
-                  <p className={`text-sm text-center ${bulkResult.failed === 0 ? 'text-emerald-600' : 'text-amber-600'}`}>
-                    {bulkResult.failed === 0
-                      ? `${bulkResult.success}건 모두 업로드 완료`
-                      : `${bulkResult.success}건 성공 / ${bulkResult.failed}건 실패`}
-                  </p>
-                )}
-              </div>
-            )}
-
             <div className="space-y-8">
               {scanItems.map((item, idx) => {
                 const receipt = receipts.find(r => r.id === item.id)
@@ -411,6 +388,29 @@ export default function ScannerPage() {
                 )
               })}
             </div>
+
+            {(bulkEligibleItems.length >= 2 || bulkResult) && (
+              <div className="rounded-2xl border border-zinc-100 bg-white p-4 space-y-2">
+                {bulkEligibleItems.length >= 2 && (
+                  <Button
+                    onClick={handleBulkSync}
+                    disabled={isBulkUploading}
+                    className="w-full"
+                  >
+                    {isBulkUploading && bulkProgress
+                      ? `업로드 중... ${bulkProgress.current}/${bulkProgress.total}`
+                      : `전체 Sheets 업로드 (${bulkEligibleItems.length}건)`}
+                  </Button>
+                )}
+                {bulkResult && (
+                  <p className={`text-sm text-center ${bulkResult.failed === 0 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                    {bulkResult.failed === 0
+                      ? `${bulkResult.success}건 모두 업로드 완료`
+                      : `${bulkResult.success}건 성공 / ${bulkResult.failed}건 실패`}
+                  </p>
+                )}
+              </div>
+            )}
           </>
         )}
 
