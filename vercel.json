@@ -1,7 +1,0 @@
-{
-  "framework": "nextjs",
-  "buildCommand": "cd receipt-lens && npm install && npm run build",
-  "outputDirectory": "receipt-lens/.next",
-  "installCommand": "cd receipt-lens && npm install",
-  "devCommand": "cd receipt-lens && npm run dev"
-}

@@ -35,6 +35,7 @@ yarn-error.log*
 
 # service account key files
 *.json
+!vercel.json
 
 # vercel
 .vercel
