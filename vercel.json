@@ -1,15 +1,7 @@
 {
-  "version": 2,
-  "builds": [
-    {
-      "src": "receipt-lens/package.json",
-      "use": "@vercel/next"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "receipt-lens/$1"
-    }
-  ]
+  "framework": "nextjs",
+  "buildCommand": "cd receipt-lens && npm install && npm run build",
+  "outputDirectory": "receipt-lens/.next",
+  "installCommand": "cd receipt-lens && npm install",
+  "devCommand": "cd receipt-lens && npm run dev"
 }
