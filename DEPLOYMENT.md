@@ -65,6 +65,15 @@ Vercel 대시보드 → Settings → Environment Variables에 아래 4개를 등
 - **원인**: `receipt-lens/.gitignore`의 `*.json` 패턴이 서비스 계정 키 파일을 차단하면서 `vercel.json`도 함께 차단
 - **해결**: `.gitignore`에 `!vercel.json` 예외 추가
 
+### 증상: npm install exited with 254
+- **원인**: `receipt-lens/.gitignore`의 `*.json` 패턴이 `package.json`, `package-lock.json`, `tsconfig.json`까지 차단 → Vercel이 `package.json`을 받지 못해 설치 불가
+- **해결**: `.gitignore`에 아래 예외 3개 추가
+  ```
+  !package.json
+  !package-lock.json
+  !tsconfig.json
+  ```
+
 ## 재배포 방법
 
 코드 변경 후 `main` 브랜치에 push하면 Vercel이 자동으로 재배포한다.
