@@ -33,9 +33,12 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
-# service account key files
+# service account key files (*.json blocked except essential config files)
 *.json
 !vercel.json
+!package.json
+!package-lock.json
+!tsconfig.json
 
 # vercel
 .vercel
