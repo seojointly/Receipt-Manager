@@ -31,12 +31,17 @@ export default function DashboardPage() {
   const [bulkResult, setBulkResult] = useState<{ success: number; failed: number } | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [deleting, setDeleting] = useState(false)
-  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [showCreate, setShowCreate] = useState(false)
   const { toast, showToast, hideToast } = useToast()
 
   if (!isLoaded) return null
 
   const pendingReceipts = receipts.filter(r => r.status === 'pending')
+
+  const handleCreated = (receipt: Receipt) => {
+    addReceipt(receipt)
+    showToast('새 항목이 추가되었습니다.', 'success')
+  }
   const selectedReceipt = selectedPendingId ? receipts.find(r => r.id === selectedPendingId) ?? null : null
 
   function createSyncHandler(receiptId: string) {
@@ -199,13 +204,13 @@ export default function DashboardPage() {
           />
         </div>
 
-        <div className="flex gap-2">
-          <Link href="/scanner" className="flex-1">
+        <div className="space-y-2">
+          <Link href="/scanner" className="block">
             <Button className="w-full">새 영수증 스캔</Button>
           </Link>
-          <Button variant="secondary" onClick={() => setShowCreateModal(true)}>
+          <Button variant="secondary" onClick={() => setShowCreate(true)} className="w-full">
             <Plus className="h-4 w-4" />
-            직접 입력
+            새 항목 추가
           </Button>
         </div>
 
@@ -310,13 +315,10 @@ export default function DashboardPage() {
         />
       )}
 
-      {showCreateModal && (
+      {showCreate && (
         <CreateReceiptModal
-          onClose={() => setShowCreateModal(false)}
-          onCreated={(receipt) => {
-            addReceipt(receipt)
-            showToast('새 항목이 추가되었습니다.', 'success')
-          }}
+          onClose={() => setShowCreate(false)}
+          onCreated={handleCreated}
         />
       )}
     </div>
