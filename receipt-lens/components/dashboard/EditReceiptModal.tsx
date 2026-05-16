@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { v4 as uuidv4 } from 'uuid'
 import { X, AlertCircle } from 'lucide-react'
 import type { Receipt } from '@/lib/types'
 import { Button } from '@/components/ui/Button'
@@ -8,27 +9,90 @@ import { CATEGORIES } from '@/lib/categories'
 
 interface EditReceiptModalProps {
   receipt: Receipt
-  onUpdate: (patch: Partial<Receipt>) => void
+  onUpdated: (patch: Partial<Receipt>) => void
+  onCreated: (receipt: Receipt) => void
   onClose: () => void
 }
 
 const inputClass =
   'w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-sm text-zinc-800 focus:outline-none focus:border-zinc-400 disabled:cursor-not-allowed disabled:text-zinc-400'
 
-export function EditReceiptModal({ receipt, onUpdate, onClose }: EditReceiptModalProps) {
-  const [loading, setLoading] = useState(false)
+export function EditReceiptModal({ receipt, onUpdated, onCreated, onClose }: EditReceiptModalProps) {
+  const [creating, setCreating] = useState(false)
+  const [updating, setUpdating] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [uuidWarning, setUuidWarning] = useState<boolean | null>(null) // null = 체크 중
+
+  useEffect(() => {
+    if (!receipt.id) return
+    const checkUuid = async () => {
+      try {
+        const res = await fetch(`/api/sheets?checkId=${receipt.id}`)
+        const data = await res.json()
+        setUuidWarning(!data.exists)
+      } catch {
+        setUuidWarning(null)
+      }
+    }
+    checkUuid()
+  }, [receipt.id])
   const [date, setDate] = useState(receipt.date)
   const [storeName, setStoreName] = useState(receipt.storeName)
   const [category, setCategory] = useState(receipt.category || (CATEGORIES[0] ?? ''))
   const [memo, setMemo] = useState(receipt.memo || '')
   const [totalAmount, setTotalAmount] = useState(receipt.totalAmount)
 
-  const isValidTotal = Number.isInteger(totalAmount) && totalAmount % 10 === 0
+  const validateForm = (): boolean => {
+    if (!storeName.trim()) {
+      setError('상호명을 입력하세요.')
+      return false
+    }
+    if (totalAmount <= 0 || totalAmount % 10 !== 0) {
+      setError('합계는 10원 단위 양수여야 합니다.')
+      return false
+    }
+    return true
+  }
 
-  async function handleUpdate() {
-    if (loading || !isValidTotal) return
-    setLoading(true)
+  const handleCreate = async () => {
+    if (!validateForm()) return
+    setCreating(true)
+    setError(null)
+
+    const newReceipt: Receipt = {
+      id: uuidv4(),
+      date,
+      storeName,
+      category,
+      memo,
+      totalAmount,
+      supplyAmount: Math.round(totalAmount / 1.1),
+      taxAmount: totalAmount - Math.round(totalAmount / 1.1),
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+    }
+
+    try {
+      const res = await fetch('/api/sheets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newReceipt),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? '생성 실패')
+
+      onCreated({ ...newReceipt, status: 'synced', sheetsRowIndex: data.rowIndex })
+      onClose()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '생성 실패')
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  const handleUpdate = async () => {
+    if (!validateForm()) return
+    setUpdating(true)
     setError(null)
     try {
       const res = await fetch('/api/sheets', {
@@ -38,12 +102,12 @@ export function EditReceiptModal({ receipt, onUpdate, onClose }: EditReceiptModa
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? '업데이트 실패')
-      onUpdate({ date, storeName, category, memo, totalAmount })
+      onUpdated({ date, storeName, category, memo, totalAmount })
       onClose()
     } catch (e) {
       setError(e instanceof Error ? e.message : '업데이트 실패')
     } finally {
-      setLoading(false)
+      setUpdating(false)
     }
   }
 
@@ -124,8 +188,22 @@ export function EditReceiptModal({ receipt, onUpdate, onClose }: EditReceiptModa
           </div>
         </div>
 
-        {!isValidTotal && (
-          <p className="mt-2 text-xs text-amber-600">합계는 10원 단위여야 합니다</p>
+        {uuidWarning === true && (
+          <div className="mt-3 flex items-start gap-2 rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-700">
+            <span className="shrink-0">⚠️</span>
+            <span>
+              Google Sheets에 등록되지 않은 영수증입니다.
+              <br />
+              <span className="text-xs text-yellow-600">[업데이트] 대신 [생성]을 사용하세요.</span>
+            </span>
+          </div>
+        )}
+
+        {uuidWarning === false && receipt.status === 'synced' && (
+          <div className="mt-3 flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 p-2 text-xs text-green-700">
+            <span>✅</span>
+            <span>Google Sheets에 등록된 영수증입니다.</span>
+          </div>
         )}
 
         {error && (
@@ -135,17 +213,33 @@ export function EditReceiptModal({ receipt, onUpdate, onClose }: EditReceiptModa
           </div>
         )}
 
-        <div className="mt-4 flex gap-2">
-          <Button variant="secondary" className="flex-1" onClick={onClose} disabled={loading}>
+        <div className="mt-4 flex gap-2 pt-2">
+          <Button
+            variant="secondary"
+            onClick={onClose}
+            className="flex-1 text-sm py-2.5"
+            disabled={creating || updating}
+          >
             취소
           </Button>
+
           <Button
-            className="flex-1"
-            onClick={handleUpdate}
-            loading={loading}
-            disabled={!isValidTotal}
+            variant="secondary"
+            onClick={handleCreate}
+            loading={creating}
+            disabled={updating}
+            className="flex-1 text-sm py-2.5 border-blue-200 text-blue-600 hover:bg-blue-50"
           >
-            Sheets 업데이트
+            생성
+          </Button>
+
+          <Button
+            onClick={handleUpdate}
+            loading={updating}
+            disabled={creating}
+            className="flex-1 text-sm py-2.5"
+          >
+            업데이트
           </Button>
         </div>
       </div>

@@ -5,7 +5,22 @@ import { checkDuplicate, appendReceiptToSheet, updateReceiptInSheet, deleteRecei
 import type { SheetRow } from '@/lib/types'
 
 // ⚠️ COST_GUARD: GET 호출 1회당 Sheets API 1회. 자동 폴링 금지 — 수동 새로고침만 허용.
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url)
+  const checkId = searchParams.get('checkId')
+
+  if (checkId) {
+    try {
+      if (process.env.NODE_ENV === 'development') {
+        console.warn('⚠️ COST_GUARD: Sheets API called')
+      }
+      const isDuplicate = await checkDuplicate(checkId)
+      return NextResponse.json({ exists: isDuplicate })
+    } catch {
+      return NextResponse.json({ exists: false })
+    }
+  }
+
   try {
     const keyJson = process.env.GOOGLE_SERVICE_ACCOUNT_KEY
     if (!keyJson) throw new Error('GOOGLE_SERVICE_ACCOUNT_KEY가 설정되지 않았습니다.')

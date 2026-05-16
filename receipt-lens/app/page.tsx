@@ -310,7 +310,11 @@ export default function DashboardPage() {
       {editTarget && (
         <EditReceiptModal
           receipt={editTarget}
-          onUpdate={(patch) => updateReceipt(editTarget.id, patch)}
+          onUpdated={(patch) => updateReceipt(editTarget.id, patch)}
+          onCreated={(receipt) => {
+            addReceipt(receipt)
+            showToast('새 항목이 추가되었습니다.', 'success')
+          }}
           onClose={() => setEditTarget(null)}
         />
       )}
