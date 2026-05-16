@@ -10,9 +10,21 @@ interface ReceiptListProps {
   isSelectable?: (receipt: Receipt) => boolean
   onEdit?: (receipt: Receipt) => void
   isEditable?: (receipt: Receipt) => boolean
+  selectionMode?: boolean
+  selectedIds?: Set<string>
+  onToggleSelect?: (id: string) => void
 }
 
-export function ReceiptList({ receipts, onSelect, isSelectable, onEdit, isEditable }: ReceiptListProps) {
+export function ReceiptList({
+  receipts,
+  onSelect,
+  isSelectable,
+  onEdit,
+  isEditable,
+  selectionMode,
+  selectedIds,
+  onToggleSelect,
+}: ReceiptListProps) {
   if (receipts.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 py-14">
@@ -26,13 +38,16 @@ export function ReceiptList({ receipts, onSelect, isSelectable, onEdit, isEditab
     <div className="space-y-2">
       {receipts.map((receipt) => {
         const selectable = onSelect && (!isSelectable || isSelectable(receipt))
-        const editable = onEdit && (!isEditable || isEditable(receipt))
+        const editable = !selectionMode && onEdit && (!isEditable || isEditable(receipt))
         return (
           <ReceiptRow
             key={receipt.id}
             receipt={receipt}
             onClick={selectable ? () => onSelect(receipt) : undefined}
             onEdit={editable ? () => onEdit(receipt) : undefined}
+            selectionMode={selectionMode}
+            isSelected={selectedIds?.has(receipt.id)}
+            onToggleSelect={onToggleSelect ? () => onToggleSelect(receipt.id) : undefined}
           />
         )
       })}

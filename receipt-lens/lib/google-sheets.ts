@@ -80,6 +80,49 @@ export const updateReceiptInSheet = async (row: SheetRow): Promise<void> => {
   })
 }
 
+export const deleteReceiptsFromSheet = async (ids: string[]): Promise<void> => {
+  // ⚠️ COST_GUARD: Sheets API 1 + ids.length 회 호출
+  const auth = getAuthClient()
+  const sheets = google.sheets({ version: 'v4', auth })
+  const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID!
+  const sheetName = process.env.GOOGLE_SHEET_NAME ?? 'Sheet1'
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${sheetName}!A:A`,
+  })
+  const rows = res.data.values ?? []
+
+  const rowIndices: number[] = []
+  rows.forEach((row, i) => {
+    if (ids.includes(row[0])) rowIndices.push(i)
+  })
+
+  if (rowIndices.length === 0) return
+
+  const meta = await sheets.spreadsheets.get({ spreadsheetId })
+  const sheet = meta.data.sheets?.find(s => s.properties?.title === sheetName)
+  const sheetId = sheet?.properties?.sheetId ?? 0
+
+  const sortedDesc = [...rowIndices].sort((a, b) => b - a)
+
+  const requests = sortedDesc.map(rowIndex => ({
+    deleteDimension: {
+      range: {
+        sheetId,
+        dimension: 'ROWS',
+        startIndex: rowIndex,
+        endIndex: rowIndex + 1,
+      },
+    },
+  }))
+
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: { requests },
+  })
+}
+
 export const appendReceiptToSheet = async (row: SheetRow): Promise<number> => {
   // ⚠️ COST_GUARD: Sheets API 호출 1회
   const auth = getAuthClient()

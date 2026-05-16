@@ -74,6 +74,11 @@ export function useReceipts() {
     setReceipts(prev => prev.filter(r => r.id !== id))
   }, [])
 
+  const removeReceipts = useCallback((ids: string[]) => {
+    ids.forEach(id => deleteImage(id).catch(() => {}))
+    setReceipts(prev => prev.filter(r => !ids.includes(r.id)))
+  }, [])
+
   const clearSynced = useCallback(() => {
     setReceipts(prev => {
       prev.filter(r => r.status === 'synced').forEach(r => deleteImage(r.id).catch(() => {}))
@@ -103,6 +108,7 @@ export function useReceipts() {
     addReceipt,
     updateReceipt,
     removeReceipt,
+    removeReceipts,
     clearSynced,
     clearFailed,
     totalSynced,

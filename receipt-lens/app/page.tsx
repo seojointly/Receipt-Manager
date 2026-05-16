@@ -2,23 +2,26 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { CircleDollarSign, CheckCircle2, Clock, ExternalLink, Trash2, Zap } from 'lucide-react'
+import { CircleDollarSign, CheckCircle2, Clock, ExternalLink, Trash2, Zap, Receipt as ReceiptIcon, Plus } from 'lucide-react'
 import type { Receipt } from '@/lib/types'
 import { CATEGORIES } from '@/lib/categories'
 import { useReceipts } from '@/hooks/useReceipts'
 import { useDailyCount } from '@/hooks/useDailyCount'
 import { SummaryCard } from '@/components/dashboard/SummaryCard'
-import { ReceiptList } from '@/components/dashboard/ReceiptList'
+import { ReceiptRow } from '@/components/dashboard/ReceiptRow'
 import { ClearModal } from '@/components/dashboard/ClearModal'
 import { PendingApprovalModal } from '@/components/dashboard/PendingApprovalModal'
 import type { PendingSyncData } from '@/components/dashboard/PendingApprovalModal'
 import { EditReceiptModal } from '@/components/dashboard/EditReceiptModal'
+import { CreateReceiptModal } from '@/components/dashboard/CreateReceiptModal'
+import { Toast } from '@/components/ui/Toast'
 import { Button } from '@/components/ui/Button'
+import { useToast } from '@/hooks/useToast'
 
 const SHEET_URL = process.env.NEXT_PUBLIC_GOOGLE_SHEET_URL
 
 export default function DashboardPage() {
-  const { receipts, totalSynced, syncedCount, pendingCount, isLoaded, updateReceipt, clearSynced, clearFailed } = useReceipts()
+  const { receipts, totalSynced, syncedCount, pendingCount, isLoaded, addReceipt, updateReceipt, removeReceipt, clearSynced, clearFailed } = useReceipts()
   const { todayCount, limit } = useDailyCount()
   const [showClearModal, setShowClearModal] = useState(false)
   const [selectedPendingId, setSelectedPendingId] = useState<string | null>(null)
@@ -26,6 +29,10 @@ export default function DashboardPage() {
   const [isBulkApproving, setIsBulkApproving] = useState(false)
   const [bulkProgress, setBulkProgress] = useState<{ current: number; total: number } | null>(null)
   const [bulkResult, setBulkResult] = useState<{ success: number; failed: number } | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [deleting, setDeleting] = useState(false)
+  const [showCreateModal, setShowCreateModal] = useState(false)
+  const { toast, showToast, hideToast } = useToast()
 
   if (!isLoaded) return null
 
@@ -100,6 +107,54 @@ export default function DashboardPage() {
     setBulkResult({ success: successCount, failed: failCount })
   }
 
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  const toggleAll = () => {
+    if (selectedIds.size === receipts.length) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(receipts.map(r => r.id)))
+    }
+  }
+
+  const handleDeleteSelected = async () => {
+    if (selectedIds.size === 0) return
+
+    const ids = Array.from(selectedIds)
+    const syncedIds = receipts
+      .filter(r => ids.includes(r.id) && r.status === 'synced')
+      .map(r => r.id)
+
+    setDeleting(true)
+    try {
+      if (syncedIds.length > 0) {
+        const res = await fetch('/api/sheets', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids: syncedIds }),
+        })
+        if (!res.ok) {
+          const data = await res.json()
+          throw new Error(data.error)
+        }
+      }
+
+      ids.forEach(id => removeReceipt(id))
+      setSelectedIds(new Set())
+      showToast(`${ids.length}개 항목이 삭제되었습니다.`, 'success')
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : '삭제 실패', 'error')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-zinc-50">
       <div className="mx-auto max-w-lg space-y-6 p-4">
@@ -144,9 +199,15 @@ export default function DashboardPage() {
           />
         </div>
 
-        <Link href="/scanner" className="block">
-          <Button className="w-full">새 영수증 스캔</Button>
-        </Link>
+        <div className="flex gap-2">
+          <Link href="/scanner" className="flex-1">
+            <Button className="w-full">새 영수증 스캔</Button>
+          </Link>
+          <Button variant="secondary" onClick={() => setShowCreateModal(true)}>
+            <Plus className="h-4 w-4" />
+            직접 입력
+          </Button>
+        </div>
 
         {(pendingReceipts.length >= 2 || bulkResult) && (
           <div className="rounded-2xl border border-zinc-100 bg-white p-4 space-y-2">
@@ -171,14 +232,58 @@ export default function DashboardPage() {
           </div>
         )}
 
-        <ReceiptList
-          receipts={receipts}
-          onSelect={(receipt) => setSelectedPendingId(receipt.id)}
-          isSelectable={(receipt) => receipt.status === 'pending'}
-          onEdit={(receipt) => setEditTarget(receipt)}
-          isEditable={(receipt) => receipt.status === 'synced'}
-        />
+        {receipts.length > 0 && (
+          <div className="flex items-center justify-between">
+            <label className="flex items-center gap-2 text-sm text-zinc-500 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={selectedIds.size === receipts.length && receipts.length > 0}
+                onChange={toggleAll}
+                className="rounded"
+              />
+              전체 선택
+            </label>
+            {selectedIds.size > 0 && (
+              <Button
+                variant="danger"
+                onClick={handleDeleteSelected}
+                loading={deleting}
+                className="text-xs px-3 py-1.5"
+              >
+                선택 삭제 ({selectedIds.size})
+              </Button>
+            )}
+          </div>
+        )}
+
+        {receipts.length === 0 ? (
+          <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 py-14">
+            <ReceiptIcon className="h-10 w-10 text-zinc-300" />
+            <p className="text-sm text-zinc-400">저장된 영수증이 없습니다</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {receipts.map(r => (
+              <div key={r.id} className="flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  checked={selectedIds.has(r.id)}
+                  onChange={() => toggleSelect(r.id)}
+                  className="rounded shrink-0"
+                />
+                <ReceiptRow
+                  receipt={r}
+                  className="flex-1"
+                  onClick={r.status === 'pending' ? () => setSelectedPendingId(r.id) : undefined}
+                  onEdit={r.status === 'synced' ? () => setEditTarget(r) : undefined}
+                />
+              </div>
+            ))}
+          </div>
+        )}
       </div>
+
+      {toast && <Toast message={toast.message} type={toast.type} onClose={hideToast} />}
 
       {showClearModal && (
         <ClearModal
@@ -202,6 +307,16 @@ export default function DashboardPage() {
           receipt={editTarget}
           onUpdate={(patch) => updateReceipt(editTarget.id, patch)}
           onClose={() => setEditTarget(null)}
+        />
+      )}
+
+      {showCreateModal && (
+        <CreateReceiptModal
+          onClose={() => setShowCreateModal(false)}
+          onCreated={(receipt) => {
+            addReceipt(receipt)
+            showToast('새 항목이 추가되었습니다.', 'success')
+          }}
         />
       )}
     </div>
