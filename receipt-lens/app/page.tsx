@@ -280,7 +280,7 @@ export default function DashboardPage() {
                   receipt={r}
                   className="flex-1"
                   onClick={r.status === 'pending' ? () => setSelectedPendingId(r.id) : undefined}
-                  onEdit={r.status === 'synced' ? () => setEditTarget(r) : undefined}
+                  onEdit={r.status === 'synced' || r.status === 'error' ? () => setEditTarget(r) : undefined}
                 />
               </div>
             ))}
