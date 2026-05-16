@@ -13,7 +13,10 @@
       "Bash(npm run *)",
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
-      "Bash(git checkout *)"
+      "Bash(git checkout *)",
+      "Bash(git init *)",
+      "Bash(git commit -m 'fix: increase image upload limit from 5MB to 20MB *)",
+      "PowerShell(taskkill *)"
     ]
   }
 }
