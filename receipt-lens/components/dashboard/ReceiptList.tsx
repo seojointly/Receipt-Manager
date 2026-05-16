@@ -8,9 +8,11 @@ interface ReceiptListProps {
   receipts: Receipt[]
   onSelect?: (receipt: Receipt) => void
   isSelectable?: (receipt: Receipt) => boolean
+  onEdit?: (receipt: Receipt) => void
+  isEditable?: (receipt: Receipt) => boolean
 }
 
-export function ReceiptList({ receipts, onSelect, isSelectable }: ReceiptListProps) {
+export function ReceiptList({ receipts, onSelect, isSelectable, onEdit, isEditable }: ReceiptListProps) {
   if (receipts.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 py-14">
@@ -24,11 +26,13 @@ export function ReceiptList({ receipts, onSelect, isSelectable }: ReceiptListPro
     <div className="space-y-2">
       {receipts.map((receipt) => {
         const selectable = onSelect && (!isSelectable || isSelectable(receipt))
+        const editable = onEdit && (!isEditable || isEditable(receipt))
         return (
           <ReceiptRow
             key={receipt.id}
             receipt={receipt}
             onClick={selectable ? () => onSelect(receipt) : undefined}
+            onEdit={editable ? () => onEdit(receipt) : undefined}
           />
         )
       })}

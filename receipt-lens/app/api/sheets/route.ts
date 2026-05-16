@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { google } from 'googleapis'
 import { SheetsBodySchema } from '@/lib/validators'
-import { checkDuplicate, appendReceiptToSheet } from '@/lib/google-sheets'
+import { checkDuplicate, appendReceiptToSheet, updateReceiptInSheet } from '@/lib/google-sheets'
 import type { SheetRow } from '@/lib/types'
 
 // ⚠️ COST_GUARD: GET 호출 1회당 Sheets API 1회. 자동 폴링 금지 — 수동 새로고침만 허용.
@@ -97,5 +97,48 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  if (rowIndex === -1) {
+    return NextResponse.json(
+      { error: 'Google Sheets 저장 실패: 행 번호를 확인할 수 없습니다.', code: 'SHEETS_ERROR' },
+      { status: 500 }
+    )
+  }
+
   return NextResponse.json({ success: true, rowIndex })
+}
+
+// ⚠️ COST_GUARD: PUT 1회당 Sheets API 2회 호출 (행 검색 + 덮어쓰기)
+export async function PUT(req: NextRequest) {
+  let body: unknown
+  try {
+    body = await req.json()
+  } catch {
+    return NextResponse.json({ error: '잘못된 요청입니다.', code: 'SHEETS_ERROR' }, { status: 400 })
+  }
+
+  const rawBody = body as Record<string, unknown>
+  const id = rawBody.id
+
+  if (!id || typeof id !== 'string') {
+    return NextResponse.json({ error: '입력값이 올바르지 않습니다.', code: 'VALIDATION_ERROR' }, { status: 400 })
+  }
+
+  const validation = SheetsBodySchema.safeParse(rawBody)
+  if (!validation.success) {
+    return NextResponse.json({ error: '입력값이 올바르지 않습니다.', code: 'VALIDATION_ERROR' }, { status: 400 })
+  }
+
+  try {
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('⚠️ COST_GUARD: Sheets API called')
+    }
+    await updateReceiptInSheet({ id, ...validation.data })
+    return NextResponse.json({ success: true })
+  } catch (err) {
+    console.error('[sheets PUT]', err)
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : '업데이트 실패', code: 'SHEETS_ERROR' },
+      { status: 500 }
+    )
+  }
 }

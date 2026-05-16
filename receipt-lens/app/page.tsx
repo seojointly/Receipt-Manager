@@ -12,6 +12,7 @@ import { ReceiptList } from '@/components/dashboard/ReceiptList'
 import { ClearModal } from '@/components/dashboard/ClearModal'
 import { PendingApprovalModal } from '@/components/dashboard/PendingApprovalModal'
 import type { PendingSyncData } from '@/components/dashboard/PendingApprovalModal'
+import { EditReceiptModal } from '@/components/dashboard/EditReceiptModal'
 import { Button } from '@/components/ui/Button'
 
 const SHEET_URL = process.env.NEXT_PUBLIC_GOOGLE_SHEET_URL
@@ -21,6 +22,7 @@ export default function DashboardPage() {
   const { todayCount, limit } = useDailyCount()
   const [showClearModal, setShowClearModal] = useState(false)
   const [selectedPendingId, setSelectedPendingId] = useState<string | null>(null)
+  const [editTarget, setEditTarget] = useState<Receipt | null>(null)
   const [isBulkApproving, setIsBulkApproving] = useState(false)
   const [bulkProgress, setBulkProgress] = useState<{ current: number; total: number } | null>(null)
   const [bulkResult, setBulkResult] = useState<{ success: number; failed: number } | null>(null)
@@ -173,6 +175,8 @@ export default function DashboardPage() {
           receipts={receipts}
           onSelect={(receipt) => setSelectedPendingId(receipt.id)}
           isSelectable={(receipt) => receipt.status === 'pending'}
+          onEdit={(receipt) => setEditTarget(receipt)}
+          isEditable={(receipt) => receipt.status === 'synced'}
         />
       </div>
 
@@ -190,6 +194,14 @@ export default function DashboardPage() {
           receipt={selectedReceipt}
           onSync={createSyncHandler(selectedReceipt.id)}
           onClose={() => setSelectedPendingId(null)}
+        />
+      )}
+
+      {editTarget && (
+        <EditReceiptModal
+          receipt={editTarget}
+          onUpdate={(patch) => updateReceipt(editTarget.id, patch)}
+          onClose={() => setEditTarget(null)}
         />
       )}
     </div>

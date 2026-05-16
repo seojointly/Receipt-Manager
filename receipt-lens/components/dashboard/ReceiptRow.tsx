@@ -1,14 +1,16 @@
 'use client'
 
+import { Pencil } from 'lucide-react'
 import type { Receipt } from '@/lib/types'
 import { Badge } from '@/components/ui/Badge'
 
 interface ReceiptRowProps {
   receipt: Receipt
   onClick?: () => void
+  onEdit?: () => void
 }
 
-export function ReceiptRow({ receipt, onClick }: ReceiptRowProps) {
+export function ReceiptRow({ receipt, onClick, onEdit }: ReceiptRowProps) {
   return (
     <div
       onClick={onClick}
@@ -25,6 +27,15 @@ export function ReceiptRow({ receipt, onClick }: ReceiptRowProps) {
           {receipt.totalAmount.toLocaleString('ko-KR')}원
         </span>
         <Badge status={receipt.status} />
+        {onEdit && (
+          <button
+            onClick={e => { e.stopPropagation(); onEdit() }}
+            className="rounded-lg p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
+            aria-label="영수증 수정"
+          >
+            <Pencil className="h-4 w-4" />
+          </button>
+        )}
       </div>
     </div>
   )

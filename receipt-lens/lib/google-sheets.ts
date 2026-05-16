@@ -39,6 +39,47 @@ export const checkDuplicate = async (id: string): Promise<boolean> => {
   }
 }
 
+export const updateReceiptInSheet = async (row: SheetRow): Promise<void> => {
+  // ⚠️ COST_GUARD: Sheets API 2회 호출 (행 검색 + 덮어쓰기)
+  const auth = getAuthClient()
+  const sheets = google.sheets({ version: 'v4', auth })
+
+  const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID
+  if (!spreadsheetId) throw new Error('GOOGLE_SPREADSHEET_ID가 설정되지 않았습니다.')
+
+  const sheetName = process.env.GOOGLE_SHEET_NAME ?? 'Sheet1'
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${sheetName}!A:A`,
+  })
+
+  const rows = res.data.values ?? []
+  const rowIndex = rows.findIndex(r => r[0] === row.id)
+
+  if (rowIndex === -1) {
+    throw new Error('수정할 행을 찾을 수 없습니다.')
+  }
+
+  const sheetRowNumber = rowIndex + 1
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${sheetName}!A${sheetRowNumber}:F${sheetRowNumber}`,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: {
+      values: [[
+        row.id,
+        row.date,
+        row.storeName,
+        row.category,
+        row.memo,
+        row.totalAmount,
+      ]],
+    },
+  })
+}
+
 export const appendReceiptToSheet = async (row: SheetRow): Promise<number> => {
   // ⚠️ COST_GUARD: Sheets API 호출 1회
   const auth = getAuthClient()
