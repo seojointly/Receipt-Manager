@@ -59,16 +59,16 @@ npm run lint         # ESLint
     → AnalyzeResult JSON 반환
   → (client) stub을 실제 데이터로 updateReceipt, ResultForm 표시
     → 분석 실패 시: stub removeReceipt, 에러 박스 표시
-  → POST /api/sheets { id, date, storeName, supplyAmount, taxAmount, totalAmount }
-    → ⚠️ 전체 Receipt가 아닌 id + AnalyzeResult 5개 필드만 전송 (createdAt 등 제외)
+  → POST /api/sheets { id, date, storeName, category, memo, totalAmount }
+    → ⚠️ SheetsBodySchema 5개 필드 + id 전송 (supplyAmount, taxAmount, createdAt 제외)
     → (server) checkDuplicate → appendReceiptToSheet (실패 시 1회 재시도)
     → { success: true, rowIndex } 반환
   → (client) localStorage 상태를 synced로 업데이트
     → 전송 실패 시: status: 'error' 업데이트
 ```
 
-**Sheets 행 구조**: `[id, date, storeName, supplyAmount, taxAmount, totalAmount, createdAt]` (A–G열)
-`/api/sheets` body에 `createdAt`이 포함되지 않으므로 G열은 항상 빈값 — 의도된 설계.
+**Sheets 행 구조**: `[id, date, storeName, category, memo, totalAmount]` (A–F열)
+`supplyAmount`, `taxAmount`는 Sheets에 기록하지 않는다 — 의도된 설계.
 
 ### 서버/클라이언트 경계
 
@@ -93,7 +93,10 @@ ApiError      // { error: string, code: 'PARSE_FAILED' | 'API_ERROR' | 'SHEETS_E
 | Route | 역할 |
 |-------|------|
 | `POST /api/analyze` | base64 data URL → Gemini → `AnalyzeResult` JSON |
-| `POST /api/sheets` | `id + AnalyzeResult 5필드` → Google Sheets 행 추가 + 중복 방지 |
+| `GET /api/sheets?checkId=<uuid>` | UUID Sheets 존재 여부 확인 → `{ exists: boolean }` |
+| `POST /api/sheets` | `id + SheetsBodySchema 5필드` → Google Sheets 행 추가 + 중복 방지 |
+| `PUT /api/sheets` | `id + SheetsBodySchema 5필드` → 기존 행 덮어쓰기 |
+| `DELETE /api/sheets` | `{ ids: string[] }` → 해당 행 삭제 |
 
 **`/api/analyze` 에러 응답:**
 - 400: 이미지 없음
@@ -101,12 +104,20 @@ ApiError      // { error: string, code: 'PARSE_FAILED' | 'API_ERROR' | 'SHEETS_E
 - 500 `API_ERROR`: Gemini API 오류 → "AI 분석 중 오류가 발생했습니다."
 
 **`/api/sheets` 에러 응답:**
-- 400: ReceiptSchema 검증 실패
+- 400: SheetsBodySchema 검증 실패
 - 409 `SHEETS_ERROR`: 중복 ID (`이미 전송된 영수증입니다.`)
 - 500 `SHEETS_ERROR`: Sheets API 오류 (1회 재시도 후) — googleapis `err.code`로 분기:
   - 401/403 → "Google Sheets 권한 오류. 서비스 계정 이메일이 스프레드시트에 공유되어 있는지 확인하세요."
   - 404 → "스프레드시트를 찾을 수 없습니다. GOOGLE_SPREADSHEET_ID를 확인하세요."
   - 기타 → "Google Sheets 연결 오류. 잠시 후 다시 시도하세요."
+
+### 대시보드 핵심 패턴 (`app/page.tsx`)
+
+- `onEdit`은 `status === 'synced' || status === 'error'` 인 영수증에만 노출. `pending`은 `PendingApprovalModal`로 처리.
+- **EditReceiptModal** props: `receipt`, `onUpdated(patch)`, `onCreated(receipt)`, `onClose`
+  - [생성]: 새 UUID 생성 → POST `/api/sheets` → `onCreated` 호출 (localStorage에 추가)
+  - [업데이트]: 기존 UUID 기반 PUT `/api/sheets` → `onUpdated` 호출 (localStorage 패치)
+  - 마운트 시 `GET /api/sheets?checkId=<uuid>` 로 Sheets 존재 여부 확인 → 미등록 시 노란 경고 배너 표시
 
 ### 스캐너 페이지 핵심 패턴 (`app/scanner/page.tsx`)
 

@@ -42,3 +42,27 @@ npm run lint         # ESLint
 - `lib/` 전체는 서버 전용 — 단, `lib/types.ts`는 순수 인터페이스이므로 `import type`으로 클라이언트에서 사용 가능.
 - Gemini 호출은 `/api/analyze`에서만. Google Sheets 호출은 `/api/sheets`에서만.
 - `@google/generative-ai`, `googleapis`는 Node.js 런타임 전용 패키지.
+
+## Sheets 행 구조
+
+`[id, date, storeName, category, memo, totalAmount]` (A–F열)
+`supplyAmount`, `taxAmount`는 Sheets에 기록하지 않는다.
+
+`SheetsBodySchema` 검증 필드: `date, storeName, category, memo, totalAmount` (id는 별도 추출)
+
+## `/api/sheets` 엔드포인트
+
+| Method | 파라미터/Body | 역할 |
+|--------|--------------|------|
+| GET | `?checkId=<uuid>` | UUID 존재 여부 → `{ exists: boolean }` |
+| POST | `id + SheetsBodySchema` | 행 추가 (중복 방지) |
+| PUT | `id + SheetsBodySchema` | 기존 행 덮어쓰기 |
+| DELETE | `{ ids: string[] }` | 행 삭제 |
+
+## EditReceiptModal
+
+`onEdit`은 `status === 'synced' || status === 'error'`인 영수증에 노출.
+버튼 3개: [취소] [생성] [업데이트]
+- [생성]: 새 UUID → POST → `onCreated(receipt)` 콜백
+- [업데이트]: 기존 UUID → PUT → `onUpdated(patch)` 콜백
+- 마운트 시 `GET ?checkId=` 로 Sheets 등록 여부 확인, 미등록이면 노란 경고 배너 표시
