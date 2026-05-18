@@ -275,6 +275,25 @@ export const updateSummaryFormulas = async (
       spreadsheetId,
       requestBody: {
         requests: [
+          // 데이터 행 배경색 초기화 (흰색)
+          {
+            repeatCell: {
+              range: {
+                sheetId,
+                startRowIndex: 2,
+                endRowIndex: summaryRow - 1,
+                startColumnIndex: 0,
+                endColumnIndex: 9,
+              },
+              cell: {
+                userEnteredFormat: {
+                  backgroundColor: { red: 1, green: 1, blue: 1 },
+                  textFormat: { bold: false },
+                },
+              },
+              fields: 'userEnteredFormat(backgroundColor,textFormat)',
+            },
+          },
           {
             repeatCell: {
               range: {
