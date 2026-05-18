@@ -42,47 +42,212 @@ export const getOrCreateMonthlySheet = async (
     }
   }
 
+  // 1. 새 시트 생성
   const addRes = await sheets.spreadsheets.batchUpdate({
     spreadsheetId,
     requestBody: {
-      requests: [{
-        addSheet: {
-          properties: { title: sheetName },
-        },
-      }],
+      requests: [{ addSheet: { properties: { title: sheetName } } }],
     },
   })
+  const sheetId = addRes.data.replies?.[0]?.addSheet?.properties?.sheetId!
 
-  const newSheetId = addRes.data.replies?.[0]?.addSheet?.properties?.sheetId!
-
-  await sheets.spreadsheets.values.update({
+  // 2. 1행: 수입/지출 병합 헤더 + 2행: 컬럼명 + 3행: 정산 + 4행: 잔액
+  await sheets.spreadsheets.values.batchUpdate({
     spreadsheetId,
-    range: `${sheetName}!A1:I1`,
-    valueInputOption: 'USER_ENTERED',
     requestBody: {
-      values: [[
-        '날짜', '항목', '운영비',
-        'UUID', '일자', '상호명', '항목', '메모', '합계',
-      ]],
+      valueInputOption: 'USER_ENTERED',
+      data: [
+        {
+          range: `${sheetName}!A1:I1`,
+          values: [['수입', '', '', '지출', '', '', '', '', '']],
+        },
+        {
+          range: `${sheetName}!A2:I2`,
+          values: [['날짜', '항목', '운영비', 'UUID', '일자', '상호명', '항목', '메모', '합계']],
+        },
+        {
+          // SUM 종료 범위를 시작보다 작게 설정(C2<C3)해 초기값 0, 순환 참조 방지
+          range: `${sheetName}!A3:I3`,
+          values: [['정산', '', '=SUM(C$3:C2)', '', '', '', '', '', '=SUM(I$3:I2)']],
+        },
+        {
+          range: `${sheetName}!A4:I4`,
+          values: [['잔액', '', '=C3-I3', '', '', '', '', '', '']],
+        },
+      ],
     },
   })
 
-  return { sheetName, sheetId: newSheetId }
+  // 3. 서식 적용 (병합, 테두리, 볼드, 필터, 정렬)
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      requests: [
+        // A1:C1 병합 (수입)
+        {
+          mergeCells: {
+            range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: 3 },
+            mergeType: 'MERGE_ALL',
+          },
+        },
+        // D1:I1 병합 (지출)
+        {
+          mergeCells: {
+            range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 3, endColumnIndex: 9 },
+            mergeType: 'MERGE_ALL',
+          },
+        },
+        // 1행 스타일 (볼드 + 가운데 정렬 + 연파랑 배경)
+        {
+          repeatCell: {
+            range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: 9 },
+            cell: {
+              userEnteredFormat: {
+                textFormat: { bold: true, fontSize: 11 },
+                horizontalAlignment: 'CENTER',
+                backgroundColor: { red: 0.85, green: 0.91, blue: 0.98 },
+              },
+            },
+            fields: 'userEnteredFormat(textFormat,horizontalAlignment,backgroundColor)',
+          },
+        },
+        // 2행 스타일 (볼드 + 가운데 정렬 + 연회색 배경)
+        {
+          repeatCell: {
+            range: { sheetId, startRowIndex: 1, endRowIndex: 2, startColumnIndex: 0, endColumnIndex: 9 },
+            cell: {
+              userEnteredFormat: {
+                textFormat: { bold: true },
+                horizontalAlignment: 'CENTER',
+                backgroundColor: { red: 0.94, green: 0.94, blue: 0.94 },
+              },
+            },
+            fields: 'userEnteredFormat(textFormat,horizontalAlignment,backgroundColor)',
+          },
+        },
+        // 수입 영역 바깥쪽 테두리 (A1:C2)
+        {
+          updateBorders: {
+            range: { sheetId, startRowIndex: 0, endRowIndex: 2, startColumnIndex: 0, endColumnIndex: 3 },
+            top:    { style: 'SOLID_MEDIUM', color: { red: 0.4, green: 0.4, blue: 0.4 } },
+            bottom: { style: 'SOLID_MEDIUM', color: { red: 0.4, green: 0.4, blue: 0.4 } },
+            left:   { style: 'SOLID_MEDIUM', color: { red: 0.4, green: 0.4, blue: 0.4 } },
+            right:  { style: 'SOLID_MEDIUM', color: { red: 0.4, green: 0.4, blue: 0.4 } },
+          },
+        },
+        // 지출 영역 바깥쪽 테두리 (D1:I2)
+        {
+          updateBorders: {
+            range: { sheetId, startRowIndex: 0, endRowIndex: 2, startColumnIndex: 3, endColumnIndex: 9 },
+            top:    { style: 'SOLID_MEDIUM', color: { red: 0.4, green: 0.4, blue: 0.4 } },
+            bottom: { style: 'SOLID_MEDIUM', color: { red: 0.4, green: 0.4, blue: 0.4 } },
+            left:   { style: 'SOLID_MEDIUM', color: { red: 0.4, green: 0.4, blue: 0.4 } },
+            right:  { style: 'SOLID_MEDIUM', color: { red: 0.4, green: 0.4, blue: 0.4 } },
+          },
+        },
+        // 2행 필터
+        {
+          setBasicFilter: {
+            filter: {
+              range: { sheetId, startRowIndex: 1, endRowIndex: 2, startColumnIndex: 0, endColumnIndex: 9 },
+            },
+          },
+        },
+        // E열(일자) 오름차순 초기 정렬
+        {
+          sortRange: {
+            range: { sheetId, startRowIndex: 2, endRowIndex: 1000, startColumnIndex: 0, endColumnIndex: 9 },
+            sortSpecs: [{ dimensionIndex: 4, sortOrder: 'ASCENDING' }],
+          },
+        },
+      ],
+    },
+  })
+
+  return { sheetName, sheetId }
 }
 
 export const findNextExpenseRow = async (
   sheets: sheets_v4.Sheets,
   spreadsheetId: string,
   sheetName: string
-): Promise<number> => {
+): Promise<{ targetRow: number; needsInsert: boolean }> => {
   // ⚠️ COST_GUARD: Sheets API 1회 호출
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `${sheetName}!D:D`,
+    range: `${sheetName}!A:D`,
   })
 
   const rows = res.data.values ?? []
-  return rows.length + 1  // 1-based, 헤더 포함
+
+  // 신형 구조: A열에서 정산 행 위치 탐색 → 그 행 앞에 삽입
+  const summaryIdx = rows.findIndex(r => r[0] === '정산')
+  if (summaryIdx !== -1) {
+    return { targetRow: summaryIdx + 1, needsInsert: true }
+  }
+
+  // 구형 구조 fallback: D열 기준 마지막 항목 다음 행에 추가
+  const dFilled = rows.filter(r => r[3]).length
+  return { targetRow: dFilled + 1, needsInsert: false }
+}
+
+export const updateSummaryFormulas = async (
+  sheets: sheets_v4.Sheets,
+  spreadsheetId: string,
+  sheetName: string
+): Promise<void> => {
+  // ⚠️ COST_GUARD: Sheets API 2회 호출
+  try {
+    const meta = await sheets.spreadsheets.get({ spreadsheetId })
+    const exists = meta.data.sheets?.some(s => s.properties?.title === sheetName)
+    if (!exists) return
+
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: `${sheetName}!A:A`,
+    })
+    const rows = res.data.values ?? []
+
+    const summaryIdx = rows.findIndex(row => row[0] === '정산')
+    const balanceIdx = rows.findIndex(row => row[0] === '잔액')
+    if (summaryIdx === -1) return
+
+    const dataStartRow = 3
+    const dataEndRow = summaryIdx      // 0-based idx = 1-based row of last data row
+    const summaryRow = summaryIdx + 1  // 1-based
+    const balanceRow = balanceIdx + 1  // 1-based
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${sheetName}!A${summaryRow}:I${summaryRow}`,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: {
+        values: [[
+          '정산', '',
+          `=SUM(C${dataStartRow}:C${dataEndRow})`,
+          '', '', '', '', '',
+          `=SUM(I${dataStartRow}:I${dataEndRow})`,
+        ]],
+      },
+    })
+
+    if (balanceIdx !== -1) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `${sheetName}!A${balanceRow}:I${balanceRow}`,
+        valueInputOption: 'USER_ENTERED',
+        requestBody: {
+          values: [[
+            '잔액', '',
+            `=C${summaryRow}-I${summaryRow}`,
+            '', '', '', '', '', '',
+          ]],
+        },
+      })
+    }
+  } catch (err) {
+    console.warn('[sheets] 정산 수식 업데이트 실패:', err)
+  }
 }
 
 export const checkDuplicate = async (id: string, date: string): Promise<boolean> => {
@@ -190,120 +355,43 @@ export const updateReceiptInSheet = async (row: SheetRow): Promise<void> => {
 //   })
 // }
 
-export const addSummaryRowIfMissing = async (
-  sheets: sheets_v4.Sheets,
-  spreadsheetId: string,
-  sheetName: string
-): Promise<void> => {
-  // ⚠️ COST_GUARD: Sheets API 2~3회 호출
-  try {
-    // 1. 해당 시트 존재 여부 확인
-    const meta = await sheets.spreadsheets.get({ spreadsheetId })
-    const exists = meta.data.sheets?.some(
-      s => s.properties?.title === sheetName
-    )
-    if (!exists) return
-
-    // 2. A:I 전체 조회
-    const res = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: `${sheetName}!A:I`,
-    })
-
-    const rows = res.data.values ?? []
-
-    // 3. 이미 정산 행 있는지 확인 (마지막 행 A열에 "합계" 또는 "정산" 텍스트)
-    const lastRow = rows[rows.length - 1]
-    if (lastRow && (lastRow[0] === '합계' || lastRow[0] === '정산')) return
-
-    // 4. 데이터 행 범위 계산 (1행은 헤더)
-    const dataStartRow = 2
-    const lastDataRow = rows.length
-
-    if (lastDataRow < dataStartRow) return
-
-    const summaryRow = lastDataRow + 1
-
-    // 5. 정산 행 추가
-    await sheets.spreadsheets.values.update({
-      spreadsheetId,
-      range: `${sheetName}!A${summaryRow}:I${summaryRow}`,
-      valueInputOption: 'USER_ENTERED',
-      requestBody: {
-        values: [[
-          '정산',
-          '',
-          `=SUM(C${dataStartRow}:C${lastDataRow})`,
-          '',
-          '',
-          '',
-          '',
-          '잔액',
-          `=C${summaryRow}-I${summaryRow + 1}`,
-        ]],
-      },
-    })
-
-    const balanceRow = summaryRow + 1
-    await sheets.spreadsheets.values.update({
-      spreadsheetId,
-      range: `${sheetName}!A${balanceRow}:I${balanceRow}`,
-      valueInputOption: 'USER_ENTERED',
-      requestBody: {
-        values: [[
-          '', '', '', '', '', '', '',
-          '지출합계',
-          `=SUM(I${dataStartRow}:I${lastDataRow})`,
-        ]],
-      },
-    })
-
-    const remainRow = balanceRow + 1
-    await sheets.spreadsheets.values.update({
-      spreadsheetId,
-      range: `${sheetName}!A${remainRow}:I${remainRow}`,
-      valueInputOption: 'USER_ENTERED',
-      requestBody: {
-        values: [[
-          '', '', '', '', '', '', '',
-          '잔액',
-          `=C${summaryRow}-I${balanceRow}`,
-        ]],
-      },
-    })
-  } catch (err) {
-    console.warn('[sheets] 전월 정산 행 추가 실패:', err)
-  }
-}
-
 export const appendReceiptToSheet = async (row: SheetRow): Promise<number> => {
-  // ⚠️ COST_GUARD: Sheets API 3~4회 호출 (전월 정산 발생 시 추가 2~3회)
+  // ⚠️ COST_GUARD: Sheets API 5~6회 호출 (시트 생성 시 추가)
   const auth = getAuthClient()
   const sheets = google.sheets({ version: 'v4', auth })
   const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID
   if (!spreadsheetId) throw new Error('GOOGLE_SPREADSHEET_ID가 설정되지 않았습니다.')
 
-  // 전월 정산 체크
-  const [year, month] = row.date.split('-')
-  const prevMonth = parseInt(month) - 1
-  const prevYear = prevMonth === 0 ? parseInt(year) - 1 : parseInt(year)
-  const prevMonthStr = String(prevMonth === 0 ? 12 : prevMonth).padStart(2, '0')
-  const prevSheetName = `${prevYear}.${prevMonthStr}`
-
-  await addSummaryRowIfMissing(sheets, spreadsheetId, prevSheetName)
-
   // 1. 월별 시트 가져오기 또는 생성
-  const { sheetName } = await getOrCreateMonthlySheet(sheets, spreadsheetId, row.date)
+  const { sheetName, sheetId } = await getOrCreateMonthlySheet(sheets, spreadsheetId, row.date)
 
-  // 2. 지출 영역 삽입 위치 탐색 (D열 기준)
-  const targetRow = await findNextExpenseRow(sheets, spreadsheetId, sheetName)
+  // 2. 삽입 위치 탐색 (신형: 정산 행 앞 삽입 / 구형: 마지막 행 다음 추가)
+  const { targetRow, needsInsert } = await findNextExpenseRow(sheets, spreadsheetId, sheetName)
 
-  // 3. 해당 행의 D~I열에 데이터 삽입
-  const range = `${sheetName}!D${targetRow}:I${targetRow}`
+  if (needsInsert) {
+    // 정산 행 앞에 빈 행 삽입 → 정산·잔액이 자동으로 한 칸씩 밀림
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        requests: [{
+          insertDimension: {
+            range: {
+              sheetId,
+              dimension: 'ROWS',
+              startIndex: targetRow - 1,  // 0-based
+              endIndex: targetRow,
+            },
+            inheritFromBefore: false,
+          },
+        }],
+      },
+    })
+  }
 
+  // 3. 삽입된 행(또는 다음 빈 행)의 D~I열에 데이터 기록
   await sheets.spreadsheets.values.update({
     spreadsheetId,
-    range,
+    range: `${sheetName}!D${targetRow}:I${targetRow}`,
     valueInputOption: 'USER_ENTERED',
     requestBody: {
       values: [[
@@ -316,6 +404,9 @@ export const appendReceiptToSheet = async (row: SheetRow): Promise<number> => {
       ]],
     },
   })
+
+  // 4. 정산·잔액 행 수식을 현재 데이터 범위로 업데이트
+  await updateSummaryFormulas(sheets, spreadsheetId, sheetName)
 
   return targetRow
 }
