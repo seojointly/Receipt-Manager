@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { google } from 'googleapis'
 import { SheetsBodySchema } from '@/lib/validators'
-import { checkDuplicate, appendReceiptToSheet, updateReceiptInSheet, deleteReceiptsFromSheet } from '@/lib/google-sheets'
+import { checkDuplicate, appendReceiptToSheet, updateReceiptInSheet } from '@/lib/google-sheets'
 import type { SheetRow } from '@/lib/types'
 
 // ⚠️ COST_GUARD: GET 호출 1회당 Sheets API 1회. 자동 폴링 금지 — 수동 새로고침만 허용.
@@ -165,35 +165,5 @@ export async function PUT(req: NextRequest) {
   }
 }
 
-// ⚠️ COST_GUARD: DELETE 1회당 Sheets API 최대 2회 호출 (메타조회 + D열 읽기 + batchUpdate)
-export async function DELETE(req: NextRequest) {
-  try {
-    const { ids, date } = await req.json()
-
-    if (!Array.isArray(ids) || ids.length === 0) {
-      return NextResponse.json(
-        { error: '삭제할 항목이 없습니다.', code: 'VALIDATION_ERROR' },
-        { status: 400 }
-      )
-    }
-
-    if (!date || typeof date !== 'string') {
-      return NextResponse.json(
-        { error: '날짜가 필요합니다.', code: 'VALIDATION_ERROR' },
-        { status: 400 }
-      )
-    }
-
-    if (process.env.NODE_ENV === 'development') {
-      console.warn('⚠️ COST_GUARD: Sheets API called')
-    }
-    await deleteReceiptsFromSheet(ids, date)
-    return NextResponse.json({ success: true, deleted: ids.length })
-  } catch (err) {
-    console.error('[sheets DELETE]', err)
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : '삭제 실패', code: 'SHEETS_ERROR' },
-      { status: 500 }
-    )
-  }
-}
+// DELETE 핸들러 비활성화 (deleteReceiptsFromSheet 주석 처리됨)
+// export async function DELETE(req: NextRequest) { ... }

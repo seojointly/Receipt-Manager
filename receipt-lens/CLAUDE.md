@@ -43,21 +43,32 @@ npm run lint         # ESLint
 - Gemini 호출은 `/api/analyze`에서만. Google Sheets 호출은 `/api/sheets`에서만.
 - `@google/generative-ai`, `googleapis`는 Node.js 런타임 전용 패키지.
 
-## Sheets 행 구조
+## Sheets 시트 구조
 
-`[id, date, storeName, category, memo, totalAmount]` (A–F열)
-`supplyAmount`, `taxAmount`는 Sheets에 기록하지 않는다.
+시트명: `YYYY.MM` (영수증 `date` 기준 자동 생성, `GOOGLE_SHEET_NAME` 환경변수 미사용)
+
+| 열 | 헤더 | 내용 |
+|----|------|------|
+| A–C | 날짜·항목·운영비 | 수입 영역 — 수동 입력 |
+| D | UUID | 지출 영역 — 앱 자동 입력 |
+| E | 일자 | 지출 영역 |
+| F | 상호명 | 지출 영역 |
+| G | 항목 | 지출 영역 |
+| H | 메모 | 지출 영역 |
+| I | 합계 | 지출 영역 |
 
 `SheetsBodySchema` 검증 필드: `date, storeName, category, memo, totalAmount` (id는 별도 추출)
+`supplyAmount`, `taxAmount`는 Sheets에 기록하지 않는다.
 
 ## `/api/sheets` 엔드포인트
 
 | Method | 파라미터/Body | 역할 |
 |--------|--------------|------|
-| GET | `?checkId=<uuid>` | UUID 존재 여부 → `{ exists: boolean }` |
-| POST | `id + SheetsBodySchema` | 행 추가 (중복 방지) |
-| PUT | `id + SheetsBodySchema` | 기존 행 덮어쓰기 |
-| DELETE | `{ ids: string[] }` | 행 삭제 |
+| GET | `?checkId=<uuid>&date=<YYYY-MM-DD>` | 해당 월 시트 D열 UUID 존재 여부 → `{ exists: boolean }` |
+| GET | (파라미터 없음) | 현재 월 시트 D:I열 오늘 날짜 행 조회 → `{ rows }` |
+| POST | `id + SheetsBodySchema` | 전월 정산 + 월별 시트 행 추가 (중복 방지) |
+| PUT | `id + SheetsBodySchema` | 해당 월 시트 기존 행 덮어쓰기 |
+| DELETE | — | ⛔ 비활성화 |
 
 ## EditReceiptModal
 
@@ -65,4 +76,4 @@ npm run lint         # ESLint
 버튼 3개: [취소] [생성] [업데이트]
 - [생성]: 새 UUID → POST → `onCreated(receipt)` 콜백
 - [업데이트]: 기존 UUID → PUT → `onUpdated(patch)` 콜백
-- 마운트 시 `GET ?checkId=` 로 Sheets 등록 여부 확인, 미등록이면 노란 경고 배너 표시
+- 마운트 시 `GET ?checkId=<uuid>&date=<YYYY-MM-DD>` 로 Sheets 등록 여부 확인, 미등록이면 노란 경고 배너 표시

@@ -61,14 +61,30 @@ npm run lint         # ESLint
     → 분석 실패 시: stub removeReceipt, 에러 박스 표시
   → POST /api/sheets { id, date, storeName, category, memo, totalAmount }
     → ⚠️ SheetsBodySchema 5개 필드 + id 전송 (supplyAmount, taxAmount, createdAt 제외)
-    → (server) checkDuplicate → appendReceiptToSheet (실패 시 1회 재시도)
+    → (server) checkDuplicate(id, date) → appendReceiptToSheet (전월 정산 체크 + 월별 시트 자동 생성)
     → { success: true, rowIndex } 반환
   → (client) localStorage 상태를 synced로 업데이트
     → 전송 실패 시: status: 'error' 업데이트
 ```
 
-**Sheets 행 구조**: `[id, date, storeName, category, memo, totalAmount]` (A–F열)
+**Sheets 시트 구조**: 월별 시트 자동 생성 (`YYYY.MM` 형식, 영수증 `date` 기준)
+
+| 열 | 헤더 | 내용 |
+|----|------|------|
+| A | 날짜 | 수입 영역 — 수동 입력 |
+| B | 항목 | 수입 영역 — 수동 입력 |
+| C | 운영비 | 수입 영역 — 수동 입력 |
+| D | UUID | 지출 영역 — 앱 자동 입력 |
+| E | 일자 | 지출 영역 — 앱 자동 입력 |
+| F | 상호명 | 지출 영역 — 앱 자동 입력 |
+| G | 항목 | 지출 영역 — 앱 자동 입력 |
+| H | 메모 | 지출 영역 — 앱 자동 입력 |
+| I | 합계 | 지출 영역 — 앱 자동 입력 |
+
+지출 데이터는 D열(UUID) 기준으로 다음 빈 행을 탐색해 독립 삽입. A–C(수입) 데이터 유무와 무관하다.
 `supplyAmount`, `taxAmount`는 Sheets에 기록하지 않는다 — 의도된 설계.
+
+월말 정산 행(3행): 전월 시트에 첫 영수증 전송 시 자동 추가됨. A열='정산', C=수입합계 SUM, H/I=지출합계·잔액 SUM 수식.
 
 ### 서버/클라이언트 경계
 
@@ -93,10 +109,11 @@ ApiError      // { error: string, code: 'PARSE_FAILED' | 'API_ERROR' | 'SHEETS_E
 | Route | 역할 |
 |-------|------|
 | `POST /api/analyze` | base64 data URL → Gemini → `AnalyzeResult` JSON |
-| `GET /api/sheets?checkId=<uuid>` | UUID Sheets 존재 여부 확인 → `{ exists: boolean }` |
-| `POST /api/sheets` | `id + SheetsBodySchema 5필드` → Google Sheets 행 추가 + 중복 방지 |
-| `PUT /api/sheets` | `id + SheetsBodySchema 5필드` → 기존 행 덮어쓰기 |
-| `DELETE /api/sheets` | `{ ids: string[] }` → 해당 행 삭제 |
+| `GET /api/sheets?checkId=<uuid>&date=<YYYY-MM-DD>` | 해당 월 시트 D열에서 UUID 존재 여부 확인 → `{ exists: boolean }` |
+| `GET /api/sheets` | 현재 월 시트(`YYYY.MM`) D:I열에서 오늘 날짜 행 조회 → `{ rows }` |
+| `POST /api/sheets` | `id + SheetsBodySchema 5필드` → 전월 정산 + 월별 시트 행 추가 + 중복 방지 |
+| `PUT /api/sheets` | `id + SheetsBodySchema 5필드` → 해당 월 시트 기존 행 덮어쓰기 |
+| `DELETE /api/sheets` | ⛔ 비활성화 (`deleteReceiptsFromSheet` 주석 처리됨) |
 
 **`/api/analyze` 에러 응답:**
 - 400: 이미지 없음
@@ -117,7 +134,7 @@ ApiError      // { error: string, code: 'PARSE_FAILED' | 'API_ERROR' | 'SHEETS_E
 - **EditReceiptModal** props: `receipt`, `onUpdated(patch)`, `onCreated(receipt)`, `onClose`
   - [생성]: 새 UUID 생성 → POST `/api/sheets` → `onCreated` 호출 (localStorage에 추가)
   - [업데이트]: 기존 UUID 기반 PUT `/api/sheets` → `onUpdated` 호출 (localStorage 패치)
-  - 마운트 시 `GET /api/sheets?checkId=<uuid>` 로 Sheets 존재 여부 확인 → 미등록 시 노란 경고 배너 표시
+  - 마운트 시 `GET /api/sheets?checkId=<uuid>&date=<YYYY-MM-DD>` 로 Sheets 존재 여부 확인 → 미등록 시 노란 경고 배너 표시
 
 ### 스캐너 페이지 핵심 패턴 (`app/scanner/page.tsx`)
 
@@ -147,7 +164,20 @@ localStorage는 `useEffect` 내에서만 읽는다. `isLoaded`가 `true`가 된 
 ### COST_GUARD 규칙
 
 `google-sheets.ts`의 모든 Sheets API 호출 함수에 `// ⚠️ COST_GUARD` 주석이 있다.
-`/api/sheets`는 반드시 `checkDuplicate(id)` → `appendReceiptToSheet()` 순서로 각 1회만 호출해야 한다 (재시도 포함 최대 2회).
+`/api/sheets` POST는 반드시 `checkDuplicate(id, date)` → `appendReceiptToSheet()` 순서로 호출한다.
+`appendReceiptToSheet` 내부에서 전월 정산(`addSummaryRowIfMissing`) + 월별 시트 조회/생성 + 삽입 위치 탐색을 포함해 총 3~4회(전월 정산 발생 시 +2~3회) Sheets API를 호출한다.
+
+**`google-sheets.ts` 함수 목록:**
+
+| 함수 | COST_GUARD | 역할 |
+|------|-----------|------|
+| `getOrCreateMonthlySheet(sheets, spreadsheetId, date)` | 1~2회 | `YYYY.MM` 시트 조회 또는 생성 + 헤더(A1:I1) 삽입 |
+| `findNextExpenseRow(sheets, spreadsheetId, sheetName)` | 1회 | D열 기준 다음 빈 행 번호 반환 |
+| `addSummaryRowIfMissing(sheets, spreadsheetId, sheetName)` | 2~3회 | 전월 시트에 정산 3행 삽입 (이미 있으면 skip) |
+| `checkDuplicate(id, date)` | 1회 | 해당 월 시트 D열에서 UUID 중복 확인 |
+| `appendReceiptToSheet(row)` | 3~4회 (+정산 시 추가) | 전월 정산 → 월별 시트 생성 → D–I열 삽입 |
+| `updateReceiptInSheet(row)` | 2~3회 | 해당 월 시트 D열 탐색 → D–I열 덮어쓰기 |
+| `deleteReceiptsFromSheet` | — | ⛔ 주석 처리됨 |
 
 `NODE_ENV === 'development'`일 때 각 API 호출 직전 경고를 출력한다:
 - `console.warn('⚠️ COST_GUARD: Sheets API called')`
@@ -169,9 +199,10 @@ localStorage는 `useEffect` 내에서만 읽는다. `isLoaded`가 `true`가 된 
 # receipt-lens/.env.local
 GEMINI_API_KEY=AIza...
 GOOGLE_SPREADSHEET_ID=...
-GOOGLE_SHEET_NAME=시트1
 GOOGLE_SERVICE_ACCOUNT_KEY={"type":"service_account",...}  # JSON 한 줄 직렬화
 ```
+
+`GOOGLE_SHEET_NAME`은 더 이상 사용하지 않는다. 시트명은 영수증 `date`에서 `YYYY.MM` 형식으로 코드가 직접 계산한다.
 
 `GOOGLE_SERVICE_ACCOUNT_KEY` Windows 직렬화:
 ```powershell

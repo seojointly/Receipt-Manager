@@ -144,51 +144,51 @@ export const updateReceiptInSheet = async (row: SheetRow): Promise<void> => {
   })
 }
 
-export const deleteReceiptsFromSheet = async (ids: string[], date: string): Promise<void> => {
-  // ⚠️ COST_GUARD: Sheets API 2회 호출 (메타조회 + batchUpdate 또는 D열 읽기)
-  const auth = getAuthClient()
-  const sheets = google.sheets({ version: 'v4', auth })
-  const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID!
-
-  const [year, month] = date.split('-')
-  const sheetName = `${year}.${month}`
-
-  const meta = await sheets.spreadsheets.get({ spreadsheetId })
-  const sheet = meta.data.sheets?.find(s => s.properties?.title === sheetName)
-  if (!sheet) return
-  const sheetId = sheet.properties!.sheetId!
-
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range: `${sheetName}!D:D`,
-  })
-  const rows = res.data.values ?? []
-
-  const rowIndices: number[] = []
-  rows.forEach((row, i) => {
-    if (ids.includes(row[0])) rowIndices.push(i)
-  })
-
-  if (rowIndices.length === 0) return
-
-  const sortedDesc = [...rowIndices].sort((a, b) => b - a)
-
-  const requests = sortedDesc.map(rowIndex => ({
-    deleteDimension: {
-      range: {
-        sheetId,
-        dimension: 'ROWS',
-        startIndex: rowIndex,
-        endIndex: rowIndex + 1,
-      },
-    },
-  }))
-
-  await sheets.spreadsheets.batchUpdate({
-    spreadsheetId,
-    requestBody: { requests },
-  })
-}
+// export const deleteReceiptsFromSheet = async (ids: string[], date: string): Promise<void> => {
+//   // ⚠️ COST_GUARD: Sheets API 2회 호출 (메타조회 + batchUpdate 또는 D열 읽기)
+//   const auth = getAuthClient()
+//   const sheets = google.sheets({ version: 'v4', auth })
+//   const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID!
+//
+//   const [year, month] = date.split('-')
+//   const sheetName = `${year}.${month}`
+//
+//   const meta = await sheets.spreadsheets.get({ spreadsheetId })
+//   const sheet = meta.data.sheets?.find(s => s.properties?.title === sheetName)
+//   if (!sheet) return
+//   const sheetId = sheet.properties!.sheetId!
+//
+//   const res = await sheets.spreadsheets.values.get({
+//     spreadsheetId,
+//     range: `${sheetName}!D:D`,
+//   })
+//   const rows = res.data.values ?? []
+//
+//   const rowIndices: number[] = []
+//   rows.forEach((row, i) => {
+//     if (ids.includes(row[0])) rowIndices.push(i)
+//   })
+//
+//   if (rowIndices.length === 0) return
+//
+//   const sortedDesc = [...rowIndices].sort((a, b) => b - a)
+//
+//   const requests = sortedDesc.map(rowIndex => ({
+//     deleteDimension: {
+//       range: {
+//         sheetId,
+//         dimension: 'ROWS',
+//         startIndex: rowIndex,
+//         endIndex: rowIndex + 1,
+//       },
+//     },
+//   }))
+//
+//   await sheets.spreadsheets.batchUpdate({
+//     spreadsheetId,
+//     requestBody: { requests },
+//   })
+// }
 
 export const addSummaryRowIfMissing = async (
   sheets: sheets_v4.Sheets,
