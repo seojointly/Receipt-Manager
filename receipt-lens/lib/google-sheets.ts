@@ -160,6 +160,19 @@ export const getOrCreateMonthlySheet = async (
             sortSpecs: [{ dimensionIndex: 4, sortOrder: 'ASCENDING' }],
           },
         },
+        // 3행~1000행 높이 30으로 설정
+        {
+          updateDimensionProperties: {
+            range: {
+              sheetId,
+              dimension: 'ROWS',
+              startIndex: 2,
+              endIndex: 1000,
+            },
+            properties: { pixelSize: 30 },
+            fields: 'pixelSize',
+          },
+        },
       ],
     },
   })
@@ -245,6 +258,52 @@ export const updateSummaryFormulas = async (
         },
       })
     }
+
+    // 정산/잔액 행 스타일 적용
+    const sheetMeta = await sheets.spreadsheets.get({ spreadsheetId })
+    const targetSheet = sheetMeta.data.sheets?.find(
+      s => s.properties?.title === sheetName
+    )
+    const sheetId = targetSheet?.properties?.sheetId ?? 0
+
+    const greenStyle = {
+      backgroundColor: { red: 182 / 255, green: 215 / 255, blue: 168 / 255 },
+      textFormat: { bold: true },
+    }
+
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        requests: [
+          {
+            repeatCell: {
+              range: {
+                sheetId,
+                startRowIndex: summaryRow - 1,
+                endRowIndex: summaryRow,
+                startColumnIndex: 0,
+                endColumnIndex: 9,
+              },
+              cell: { userEnteredFormat: greenStyle },
+              fields: 'userEnteredFormat(backgroundColor,textFormat)',
+            },
+          },
+          {
+            repeatCell: {
+              range: {
+                sheetId,
+                startRowIndex: balanceRow - 1,
+                endRowIndex: balanceRow,
+                startColumnIndex: 0,
+                endColumnIndex: 9,
+              },
+              cell: { userEnteredFormat: greenStyle },
+              fields: 'userEnteredFormat(backgroundColor,textFormat)',
+            },
+          },
+        ],
+      },
+    })
   } catch (err) {
     console.warn('[sheets] 정산 수식 업데이트 실패:', err)
   }
