@@ -8,13 +8,15 @@ import type { SheetRow } from '@/lib/types'
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const checkId = searchParams.get('checkId')
+  const checkDate = searchParams.get('date')
 
   if (checkId) {
+    if (!checkDate) return NextResponse.json({ exists: false })
     try {
       if (process.env.NODE_ENV === 'development') {
         console.warn('⚠️ COST_GUARD: Sheets API called')
       }
-      const isDuplicate = await checkDuplicate(checkId)
+      const isDuplicate = await checkDuplicate(checkId, checkDate)
       return NextResponse.json({ exists: isDuplicate })
     } catch {
       return NextResponse.json({ exists: false })
@@ -31,7 +33,12 @@ export async function GET(req: NextRequest) {
     })
     const sheets = google.sheets({ version: 'v4', auth })
     const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID!
-    const sheetName = process.env.GOOGLE_SHEET_NAME ?? 'Sheet1'
+
+    // 현재 월 시트명 계산 (KST 기준)
+    const now = new Date()
+    const kstOffset = 9 * 60
+    const kst = new Date(now.getTime() + (kstOffset - now.getTimezoneOffset()) * 60000)
+    const sheetName = `${kst.getFullYear()}.${String(kst.getMonth() + 1).padStart(2, '0')}`
 
     if (process.env.NODE_ENV === 'development') {
       console.warn('⚠️ COST_GUARD: Sheets API called')
@@ -39,7 +46,7 @@ export async function GET(req: NextRequest) {
 
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${sheetName}!A:F`,
+      range: `${sheetName}!D:I`,
     })
 
     const rows = res.data.values ?? []
@@ -84,7 +91,7 @@ export async function POST(req: NextRequest) {
     if (process.env.NODE_ENV === 'development') {
       console.warn('⚠️ COST_GUARD: Sheets API called')
     }
-    isDuplicate = await checkDuplicate(id)
+    isDuplicate = await checkDuplicate(id, validation.data.date)
   } catch (err) {
     const error = err instanceof Error ? err.message : 'Google Sheets 연결 오류. 잠시 후 다시 시도하세요.'
     return NextResponse.json({ error, code: 'SHEETS_ERROR' }, { status: 500 })
@@ -158,10 +165,10 @@ export async function PUT(req: NextRequest) {
   }
 }
 
-// ⚠️ COST_GUARD: DELETE 1회당 Sheets API 최대 3회 호출 (A열 읽기 + 메타조회 + batchUpdate)
+// ⚠️ COST_GUARD: DELETE 1회당 Sheets API 최대 2회 호출 (메타조회 + D열 읽기 + batchUpdate)
 export async function DELETE(req: NextRequest) {
   try {
-    const { ids } = await req.json()
+    const { ids, date } = await req.json()
 
     if (!Array.isArray(ids) || ids.length === 0) {
       return NextResponse.json(
@@ -170,10 +177,17 @@ export async function DELETE(req: NextRequest) {
       )
     }
 
+    if (!date || typeof date !== 'string') {
+      return NextResponse.json(
+        { error: '날짜가 필요합니다.', code: 'VALIDATION_ERROR' },
+        { status: 400 }
+      )
+    }
+
     if (process.env.NODE_ENV === 'development') {
       console.warn('⚠️ COST_GUARD: Sheets API called')
     }
-    await deleteReceiptsFromSheet(ids)
+    await deleteReceiptsFromSheet(ids, date)
     return NextResponse.json({ success: true, deleted: ids.length })
   } catch (err) {
     console.error('[sheets DELETE]', err)

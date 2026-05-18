@@ -1,4 +1,5 @@
 import { google } from 'googleapis'
+import type { sheets_v4 } from 'googleapis'
 import type { SheetRow } from './types'
 
 const getAuthClient = () => {
@@ -20,52 +21,115 @@ const getAuthClient = () => {
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
-export const checkDuplicate = async (id: string): Promise<boolean> => {
-  // ⚠️ COST_GUARD: Sheets API 호출 1회
+export const getOrCreateMonthlySheet = async (
+  sheets: sheets_v4.Sheets,
+  spreadsheetId: string,
+  date: string  // YYYY-MM-DD
+): Promise<{ sheetName: string; sheetId: number }> => {
+  // ⚠️ COST_GUARD: Sheets API 1~2회 호출
+  const [year, month] = date.split('-')
+  const sheetName = `${year}.${month}`
+
+  const meta = await sheets.spreadsheets.get({ spreadsheetId })
+  const existingSheet = meta.data.sheets?.find(
+    s => s.properties?.title === sheetName
+  )
+
+  if (existingSheet) {
+    return {
+      sheetName,
+      sheetId: existingSheet.properties!.sheetId!,
+    }
+  }
+
+  const addRes = await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      requests: [{
+        addSheet: {
+          properties: { title: sheetName },
+        },
+      }],
+    },
+  })
+
+  const newSheetId = addRes.data.replies?.[0]?.addSheet?.properties?.sheetId!
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${sheetName}!A1:I1`,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: {
+      values: [[
+        '날짜', '항목', '운영비',
+        'UUID', '일자', '상호명', '항목', '메모', '합계',
+      ]],
+    },
+  })
+
+  return { sheetName, sheetId: newSheetId }
+}
+
+export const findNextExpenseRow = async (
+  sheets: sheets_v4.Sheets,
+  spreadsheetId: string,
+  sheetName: string
+): Promise<number> => {
+  // ⚠️ COST_GUARD: Sheets API 1회 호출
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${sheetName}!D:D`,
+  })
+
+  const rows = res.data.values ?? []
+  return rows.length + 1  // 1-based, 헤더 포함
+}
+
+export const checkDuplicate = async (id: string, date: string): Promise<boolean> => {
+  // ⚠️ COST_GUARD: Sheets API 1회 호출
   try {
     const auth = getAuthClient()
     const sheets = google.sheets({ version: 'v4', auth })
     const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID!
-    const sheetName = process.env.GOOGLE_SHEET_NAME ?? 'Sheet1'
+
+    const [year, month] = date.split('-')
+    const sheetName = `${year}.${month}`
 
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${sheetName}!A:A`,
+      range: `${sheetName}!D:D`,
     })
+
     const rows = res.data.values ?? []
     return rows.some(row => row[0] === id)
   } catch {
-    return false // 중복 확인 실패 시 전송 허용
+    return false
   }
 }
 
 export const updateReceiptInSheet = async (row: SheetRow): Promise<void> => {
-  // ⚠️ COST_GUARD: Sheets API 2회 호출 (행 검색 + 덮어쓰기)
+  // ⚠️ COST_GUARD: Sheets API 2~3회 호출
   const auth = getAuthClient()
   const sheets = google.sheets({ version: 'v4', auth })
+  const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID!
 
-  const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID
-  if (!spreadsheetId) throw new Error('GOOGLE_SPREADSHEET_ID가 설정되지 않았습니다.')
-
-  const sheetName = process.env.GOOGLE_SHEET_NAME ?? 'Sheet1'
+  const [year, month] = row.date.split('-')
+  const sheetName = `${year}.${month}`
 
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `${sheetName}!A:A`,
+    range: `${sheetName}!D:D`,
   })
 
   const rows = res.data.values ?? []
   const rowIndex = rows.findIndex(r => r[0] === row.id)
-
-  if (rowIndex === -1) {
-    throw new Error('수정할 행을 찾을 수 없습니다.')
-  }
+  if (rowIndex === -1) throw new Error('수정할 행을 찾을 수 없습니다.')
 
   const sheetRowNumber = rowIndex + 1
 
   await sheets.spreadsheets.values.update({
     spreadsheetId,
-    range: `${sheetName}!A${sheetRowNumber}:F${sheetRowNumber}`,
+    range: `${sheetName}!D${sheetRowNumber}:I${sheetRowNumber}`,
     valueInputOption: 'USER_ENTERED',
     requestBody: {
       values: [[
@@ -80,16 +144,23 @@ export const updateReceiptInSheet = async (row: SheetRow): Promise<void> => {
   })
 }
 
-export const deleteReceiptsFromSheet = async (ids: string[]): Promise<void> => {
-  // ⚠️ COST_GUARD: Sheets API 1 + ids.length 회 호출
+export const deleteReceiptsFromSheet = async (ids: string[], date: string): Promise<void> => {
+  // ⚠️ COST_GUARD: Sheets API 2회 호출 (메타조회 + batchUpdate 또는 D열 읽기)
   const auth = getAuthClient()
   const sheets = google.sheets({ version: 'v4', auth })
   const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID!
-  const sheetName = process.env.GOOGLE_SHEET_NAME ?? 'Sheet1'
+
+  const [year, month] = date.split('-')
+  const sheetName = `${year}.${month}`
+
+  const meta = await sheets.spreadsheets.get({ spreadsheetId })
+  const sheet = meta.data.sheets?.find(s => s.properties?.title === sheetName)
+  if (!sheet) return
+  const sheetId = sheet.properties!.sheetId!
 
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `${sheetName}!A:A`,
+    range: `${sheetName}!D:D`,
   })
   const rows = res.data.values ?? []
 
@@ -99,10 +170,6 @@ export const deleteReceiptsFromSheet = async (ids: string[]): Promise<void> => {
   })
 
   if (rowIndices.length === 0) return
-
-  const meta = await sheets.spreadsheets.get({ spreadsheetId })
-  const sheet = meta.data.sheets?.find(s => s.properties?.title === sheetName)
-  const sheetId = sheet?.properties?.sheetId ?? 0
 
   const sortedDesc = [...rowIndices].sort((a, b) => b - a)
 
@@ -123,45 +190,132 @@ export const deleteReceiptsFromSheet = async (ids: string[]): Promise<void> => {
   })
 }
 
+export const addSummaryRowIfMissing = async (
+  sheets: sheets_v4.Sheets,
+  spreadsheetId: string,
+  sheetName: string
+): Promise<void> => {
+  // ⚠️ COST_GUARD: Sheets API 2~3회 호출
+  try {
+    // 1. 해당 시트 존재 여부 확인
+    const meta = await sheets.spreadsheets.get({ spreadsheetId })
+    const exists = meta.data.sheets?.some(
+      s => s.properties?.title === sheetName
+    )
+    if (!exists) return
+
+    // 2. A:I 전체 조회
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: `${sheetName}!A:I`,
+    })
+
+    const rows = res.data.values ?? []
+
+    // 3. 이미 정산 행 있는지 확인 (마지막 행 A열에 "합계" 또는 "정산" 텍스트)
+    const lastRow = rows[rows.length - 1]
+    if (lastRow && (lastRow[0] === '합계' || lastRow[0] === '정산')) return
+
+    // 4. 데이터 행 범위 계산 (1행은 헤더)
+    const dataStartRow = 2
+    const lastDataRow = rows.length
+
+    if (lastDataRow < dataStartRow) return
+
+    const summaryRow = lastDataRow + 1
+
+    // 5. 정산 행 추가
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${sheetName}!A${summaryRow}:I${summaryRow}`,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: {
+        values: [[
+          '정산',
+          '',
+          `=SUM(C${dataStartRow}:C${lastDataRow})`,
+          '',
+          '',
+          '',
+          '',
+          '잔액',
+          `=C${summaryRow}-I${summaryRow + 1}`,
+        ]],
+      },
+    })
+
+    const balanceRow = summaryRow + 1
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${sheetName}!A${balanceRow}:I${balanceRow}`,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: {
+        values: [[
+          '', '', '', '', '', '', '',
+          '지출합계',
+          `=SUM(I${dataStartRow}:I${lastDataRow})`,
+        ]],
+      },
+    })
+
+    const remainRow = balanceRow + 1
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${sheetName}!A${remainRow}:I${remainRow}`,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: {
+        values: [[
+          '', '', '', '', '', '', '',
+          '잔액',
+          `=C${summaryRow}-I${balanceRow}`,
+        ]],
+      },
+    })
+  } catch (err) {
+    console.warn('[sheets] 전월 정산 행 추가 실패:', err)
+  }
+}
+
 export const appendReceiptToSheet = async (row: SheetRow): Promise<number> => {
-  // ⚠️ COST_GUARD: Sheets API 호출 1회
+  // ⚠️ COST_GUARD: Sheets API 3~4회 호출 (전월 정산 발생 시 추가 2~3회)
   const auth = getAuthClient()
   const sheets = google.sheets({ version: 'v4', auth })
-
   const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID
   if (!spreadsheetId) throw new Error('GOOGLE_SPREADSHEET_ID가 설정되지 않았습니다.')
 
-  const sheetName = process.env.GOOGLE_SHEET_NAME ?? 'Sheet1'
+  // 전월 정산 체크
+  const [year, month] = row.date.split('-')
+  const prevMonth = parseInt(month) - 1
+  const prevYear = prevMonth === 0 ? parseInt(year) - 1 : parseInt(year)
+  const prevMonthStr = String(prevMonth === 0 ? 12 : prevMonth).padStart(2, '0')
+  const prevSheetName = `${prevYear}.${prevMonthStr}`
 
-  // A: UUID | B: 날짜 | C: 상호명 | D: 항목(category) | E: 메모(memo) | F: 합계
-  const values = [[
-    row.id,
-    row.date,
-    row.storeName,
-    row.category,
-    row.memo,
-    row.totalAmount,
-  ]]
+  await addSummaryRowIfMissing(sheets, spreadsheetId, prevSheetName)
 
-  let lastError: Error | null = null
+  // 1. 월별 시트 가져오기 또는 생성
+  const { sheetName } = await getOrCreateMonthlySheet(sheets, spreadsheetId, row.date)
 
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    try {
-      const response = await sheets.spreadsheets.values.append({
-        spreadsheetId,
-        range: `${sheetName}!A:F`,
-        valueInputOption: 'USER_ENTERED',
-        requestBody: { values },
-      })
-      const updatedRange = response.data.updates?.updatedRange ?? ''
-      const match = updatedRange.match(/(\d+)$/)
-      return match ? parseInt(match[1], 10) : -1
-    } catch (err) {
-      lastError = err instanceof Error ? err : new Error(String(err))
-      console.error(`[sheets] append 시도 ${attempt} 실패:`, lastError.message)
-      if (attempt < 2) await delay(1000)
-    }
-  }
+  // 2. 지출 영역 삽입 위치 탐색 (D열 기준)
+  const targetRow = await findNextExpenseRow(sheets, spreadsheetId, sheetName)
 
-  throw lastError ?? new Error('Google Sheets 기록 실패')
+  // 3. 해당 행의 D~I열에 데이터 삽입
+  const range = `${sheetName}!D${targetRow}:I${targetRow}`
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: {
+      values: [[
+        row.id,           // D: UUID
+        row.date,         // E: 일자
+        row.storeName,    // F: 상호명
+        row.category,     // G: 항목
+        row.memo,         // H: 메모
+        row.totalAmount,  // I: 합계
+      ]],
+    },
+  })
+
+  return targetRow
 }
