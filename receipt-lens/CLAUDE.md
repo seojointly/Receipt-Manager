@@ -47,15 +47,17 @@ npm run lint         # ESLint
 
 시트명: `YYYY.MM` (영수증 `date` 기준 자동 생성, `GOOGLE_SHEET_NAME` 환경변수 미사용)
 
-| 열 | 헤더 | 내용 |
-|----|------|------|
-| A–C | 날짜·항목·운영비 | 수입 영역 — 수동 입력 |
-| D | UUID | 지출 영역 — 앱 자동 입력 |
-| E | 일자 | 지출 영역 |
-| F | 상호명 | 지출 영역 |
-| G | 항목 | 지출 영역 |
-| H | 메모 | 지출 영역 |
-| I | 합계 | 지출 영역 |
+```
+행  A       B    C              D       E     F       G    H    I
+1   [수입 A1:C1 병합]           [지출 D1:I1 병합]
+2   날짜   항목  운영비  ▽      UUID   일자  상호명  항목  메모  합계  ▽
+3+  ← 수동 입력 →              ← 앱 자동 입력 (정산 행 위에 insertDimension) →
+N   정산         =SUM(C3:C(N-1))                                =SUM(I3:I(N-1))
+N+1 잔액         =C(N)-I(N)
+```
+
+- 데이터 행: `A='정산'`인 행 바로 앞에 `insertDimension`으로 삽입, 정산/잔액 행이 자동으로 밀림
+- 정산/잔액 수식: 영수증 전송마다 `updateSummaryFormulas`가 현재 데이터 범위로 명시 갱신
 
 `SheetsBodySchema` 검증 필드: `date, storeName, category, memo, totalAmount` (id는 별도 추출)
 `supplyAmount`, `taxAmount`는 Sheets에 기록하지 않는다.
@@ -66,7 +68,7 @@ npm run lint         # ESLint
 |--------|--------------|------|
 | GET | `?checkId=<uuid>&date=<YYYY-MM-DD>` | 해당 월 시트 D열 UUID 존재 여부 → `{ exists: boolean }` |
 | GET | (파라미터 없음) | 현재 월 시트 D:I열 오늘 날짜 행 조회 → `{ rows }` |
-| POST | `id + SheetsBodySchema` | 전월 정산 + 월별 시트 행 추가 (중복 방지) |
+| POST | `id + SheetsBodySchema` | 월별 시트 행 추가 + 정산·잔액 수식 갱신 (중복 방지) |
 | PUT | `id + SheetsBodySchema` | 해당 월 시트 기존 행 덮어쓰기 |
 | DELETE | — | ⛔ 비활성화 |
 

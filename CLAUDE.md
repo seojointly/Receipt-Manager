@@ -61,7 +61,7 @@ npm run lint         # ESLint
     → 분석 실패 시: stub removeReceipt, 에러 박스 표시
   → POST /api/sheets { id, date, storeName, category, memo, totalAmount }
     → ⚠️ SheetsBodySchema 5개 필드 + id 전송 (supplyAmount, taxAmount, createdAt 제외)
-    → (server) checkDuplicate(id, date) → appendReceiptToSheet (전월 정산 체크 + 월별 시트 자동 생성)
+    → (server) checkDuplicate(id, date) → appendReceiptToSheet (월별 시트 자동 생성 + 정산 행 위에 삽입 + 수식 갱신)
     → { success: true, rowIndex } 반환
   → (client) localStorage 상태를 synced로 업데이트
     → 전송 실패 시: status: 'error' 업데이트
@@ -69,22 +69,21 @@ npm run lint         # ESLint
 
 **Sheets 시트 구조**: 월별 시트 자동 생성 (`YYYY.MM` 형식, 영수증 `date` 기준)
 
-| 열 | 헤더 | 내용 |
-|----|------|------|
-| A | 날짜 | 수입 영역 — 수동 입력 |
-| B | 항목 | 수입 영역 — 수동 입력 |
-| C | 운영비 | 수입 영역 — 수동 입력 |
-| D | UUID | 지출 영역 — 앱 자동 입력 |
-| E | 일자 | 지출 영역 — 앱 자동 입력 |
-| F | 상호명 | 지출 영역 — 앱 자동 입력 |
-| G | 항목 | 지출 영역 — 앱 자동 입력 |
-| H | 메모 | 지출 영역 — 앱 자동 입력 |
-| I | 합계 | 지출 영역 — 앱 자동 입력 |
+```
+행  A       B    C                    D       E     F       G    H    I
+1   [수입 A1:C1 병합, 연파랑]          [지출 D1:I1 병합, 연파랑]
+2   날짜   항목  운영비  ▽             UUID   일자  상호명  항목  메모  합계  ▽
+3+  ← 수동 입력 →                     ← 앱 자동 입력 (정산 행 위에 삽입) →
+N   정산         =SUM(C3:C(N-1))                                    =SUM(I3:I(N-1))
+N+1 잔액         =C(N)-I(N)
+```
 
-지출 데이터는 D열(UUID) 기준으로 다음 빈 행을 탐색해 독립 삽입. A–C(수입) 데이터 유무와 무관하다.
+- 1행: A1:C1(수입), D1:I1(지출) 병합 + 연파랑 배경 + 볼드
+- 2행: 컬럼명 + 연회색 배경 + 볼드 + 필터
+- 데이터 행(3행~): 영수증 전송 시 정산 행(`A='정산'`) 바로 위에 `insertDimension`으로 삽입
+- 정산/잔액 행: 시트 생성 시 고정 포함. 영수증 전송마다 `updateSummaryFormulas`가 SUM 범위를 현재 데이터 마지막 행으로 갱신
+
 `supplyAmount`, `taxAmount`는 Sheets에 기록하지 않는다 — 의도된 설계.
-
-월말 정산 행(3행): 전월 시트에 첫 영수증 전송 시 자동 추가됨. A열='정산', C=수입합계 SUM, H/I=지출합계·잔액 SUM 수식.
 
 ### 서버/클라이언트 경계
 
@@ -111,7 +110,7 @@ ApiError      // { error: string, code: 'PARSE_FAILED' | 'API_ERROR' | 'SHEETS_E
 | `POST /api/analyze` | base64 data URL → Gemini → `AnalyzeResult` JSON |
 | `GET /api/sheets?checkId=<uuid>&date=<YYYY-MM-DD>` | 해당 월 시트 D열에서 UUID 존재 여부 확인 → `{ exists: boolean }` |
 | `GET /api/sheets` | 현재 월 시트(`YYYY.MM`) D:I열에서 오늘 날짜 행 조회 → `{ rows }` |
-| `POST /api/sheets` | `id + SheetsBodySchema 5필드` → 전월 정산 + 월별 시트 행 추가 + 중복 방지 |
+| `POST /api/sheets` | `id + SheetsBodySchema 5필드` → 월별 시트 행 추가 + 정산·잔액 수식 갱신 + 중복 방지 |
 | `PUT /api/sheets` | `id + SheetsBodySchema 5필드` → 해당 월 시트 기존 행 덮어쓰기 |
 | `DELETE /api/sheets` | ⛔ 비활성화 (`deleteReceiptsFromSheet` 주석 처리됨) |
 
@@ -165,17 +164,17 @@ localStorage는 `useEffect` 내에서만 읽는다. `isLoaded`가 `true`가 된 
 
 `google-sheets.ts`의 모든 Sheets API 호출 함수에 `// ⚠️ COST_GUARD` 주석이 있다.
 `/api/sheets` POST는 반드시 `checkDuplicate(id, date)` → `appendReceiptToSheet()` 순서로 호출한다.
-`appendReceiptToSheet` 내부에서 전월 정산(`addSummaryRowIfMissing`) + 월별 시트 조회/생성 + 삽입 위치 탐색을 포함해 총 3~4회(전월 정산 발생 시 +2~3회) Sheets API를 호출한다.
+`appendReceiptToSheet` 내부에서 월별 시트 조회/생성 + 삽입 위치 탐색 + `insertDimension` + 데이터 기록 + `updateSummaryFormulas`를 포함해 총 7~8회 Sheets API를 호출한다(신규 시트 생성 시 +3회).
 
 **`google-sheets.ts` 함수 목록:**
 
 | 함수 | COST_GUARD | 역할 |
 |------|-----------|------|
-| `getOrCreateMonthlySheet(sheets, spreadsheetId, date)` | 1~2회 | `YYYY.MM` 시트 조회 또는 생성 + 헤더(A1:I1) 삽입 |
-| `findNextExpenseRow(sheets, spreadsheetId, sheetName)` | 1회 | D열 기준 다음 빈 행 번호 반환 |
-| `addSummaryRowIfMissing(sheets, spreadsheetId, sheetName)` | 2~3회 | 전월 시트에 정산 3행 삽입 (이미 있으면 skip) |
+| `getOrCreateMonthlySheet(sheets, spreadsheetId, date)` | 1회(기존) / 4회(신규) | `YYYY.MM` 시트 조회 또는 생성 + 2행 헤더 + 정산/잔액 행 + 서식 |
+| `findNextExpenseRow(sheets, spreadsheetId, sheetName)` | 1회 | A:D열 스캔 → `{ targetRow, needsInsert }` 반환 (신형: 정산 행 위치 / 구형: D열 다음 빈 행) |
+| `updateSummaryFormulas(sheets, spreadsheetId, sheetName)` | 2~4회 | 정산·잔액 행 SUM 수식을 현재 데이터 범위로 갱신 |
 | `checkDuplicate(id, date)` | 1회 | 해당 월 시트 D열에서 UUID 중복 확인 |
-| `appendReceiptToSheet(row)` | 3~4회 (+정산 시 추가) | 전월 정산 → 월별 시트 생성 → D–I열 삽입 |
+| `appendReceiptToSheet(row)` | 7~8회 | 월별 시트 생성 → 정산 행 위에 삽입 → D–I열 기록 → 수식 갱신 |
 | `updateReceiptInSheet(row)` | 2~3회 | 해당 월 시트 D열 탐색 → D–I열 덮어쓰기 |
 | `deleteReceiptsFromSheet` | — | ⛔ 주석 처리됨 |
 
