@@ -21,6 +21,116 @@ const getAuthClient = () => {
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
+export const applyColumnFormats = async (
+  sheets: sheets_v4.Sheets,
+  spreadsheetId: string,
+  sheetId: number
+): Promise<void> => {
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      requests: [
+        // A열(날짜) 날짜 서식 — yyyy-mm-dd
+        {
+          repeatCell: {
+            range: { sheetId, startRowIndex: 2, endRowIndex: 1000, startColumnIndex: 0, endColumnIndex: 1 },
+            cell: { userEnteredFormat: { numberFormat: { type: 'DATE', pattern: 'yyyy-mm-dd' } } },
+            fields: 'userEnteredFormat.numberFormat',
+          },
+        },
+        // B열(항목) 일반 텍스트 서식
+        {
+          repeatCell: {
+            range: { sheetId, startRowIndex: 2, endRowIndex: 1000, startColumnIndex: 1, endColumnIndex: 2 },
+            cell: { userEnteredFormat: { numberFormat: { type: 'TEXT' } } },
+            fields: 'userEnteredFormat.numberFormat',
+          },
+        },
+        // C열(운영비) 숫자 서식 — 천단위 콤마, ₩ 없음
+        {
+          repeatCell: {
+            range: { sheetId, startRowIndex: 2, endRowIndex: 1000, startColumnIndex: 2, endColumnIndex: 3 },
+            cell: { userEnteredFormat: { numberFormat: { type: 'NUMBER', pattern: '#,##0' } } },
+            fields: 'userEnteredFormat.numberFormat',
+          },
+        },
+        // I열(합계) 숫자 서식 — 천단위 콤마, ₩ 없음
+        {
+          repeatCell: {
+            range: { sheetId, startRowIndex: 2, endRowIndex: 1000, startColumnIndex: 8, endColumnIndex: 9 },
+            cell: { userEnteredFormat: { numberFormat: { type: 'NUMBER', pattern: '#,##0' } } },
+            fields: 'userEnteredFormat.numberFormat',
+          },
+        },
+        // A~I열 가로/세로 가운데 맞춤
+        {
+          repeatCell: {
+            range: { sheetId, startRowIndex: 2, endRowIndex: 1000, startColumnIndex: 0, endColumnIndex: 9 },
+            cell: {
+              userEnteredFormat: {
+                horizontalAlignment: 'CENTER',
+                verticalAlignment: 'MIDDLE',
+              },
+            },
+            fields: 'userEnteredFormat(horizontalAlignment,verticalAlignment)',
+          },
+        },
+        // D열(UUID) 왼쪽 정렬 고정 (가운데 맞춤 덮어씌우기)
+        {
+          repeatCell: {
+            range: {
+              sheetId,
+              startRowIndex: 2,
+              endRowIndex: 1000,
+              startColumnIndex: 3,
+              endColumnIndex: 4,
+            },
+            cell: {
+              userEnteredFormat: {
+                horizontalAlignment: 'LEFT',
+                verticalAlignment: 'MIDDLE',
+              },
+            },
+            fields: 'userEnteredFormat(horizontalAlignment,verticalAlignment)',
+          },
+        },
+        // 수입 영역 (A~C) 바깥쪽 테두리
+        {
+          updateBorders: {
+            range: {
+              sheetId,
+              startRowIndex: 2,
+              endRowIndex: 1000,
+              startColumnIndex: 0,
+              endColumnIndex: 3,
+            },
+            top: { style: 'SOLID_MEDIUM', color: { red: 0.4, green: 0.4, blue: 0.4 } },
+            bottom: { style: 'SOLID_MEDIUM', color: { red: 0.4, green: 0.4, blue: 0.4 } },
+            left: { style: 'SOLID_MEDIUM', color: { red: 0.4, green: 0.4, blue: 0.4 } },
+            right: { style: 'SOLID_MEDIUM', color: { red: 0.4, green: 0.4, blue: 0.4 } },
+          },
+        },
+        // 지출 영역 (D~I) 바깥쪽 테두리
+        {
+          updateBorders: {
+            range: {
+              sheetId,
+              startRowIndex: 2,
+              endRowIndex: 1000,
+              startColumnIndex: 3,
+              endColumnIndex: 9,
+            },
+            top: { style: 'SOLID_MEDIUM', color: { red: 0.4, green: 0.4, blue: 0.4 } },
+            bottom: { style: 'SOLID_MEDIUM', color: { red: 0.4, green: 0.4, blue: 0.4 } },
+            left: { style: 'SOLID_MEDIUM', color: { red: 0.4, green: 0.4, blue: 0.4 } },
+            right: { style: 'SOLID_MEDIUM', color: { red: 0.4, green: 0.4, blue: 0.4 } },
+          },
+        },
+      ],
+    },
+  })
+}
+
 export const getOrCreateMonthlySheet = async (
   sheets: sheets_v4.Sheets,
   spreadsheetId: string,
@@ -36,6 +146,7 @@ export const getOrCreateMonthlySheet = async (
   )
 
   if (existingSheet) {
+    await applyColumnFormats(sheets, spreadsheetId, existingSheet.properties!.sheetId!)
     return {
       sheetName,
       sheetId: existingSheet.properties!.sheetId!,
@@ -171,6 +282,51 @@ export const getOrCreateMonthlySheet = async (
             },
             properties: { pixelSize: 30 },
             fields: 'pixelSize',
+          },
+        },
+        // A열(날짜) 날짜 서식
+        {
+          repeatCell: {
+            range: { sheetId, startRowIndex: 2, endRowIndex: 1000, startColumnIndex: 0, endColumnIndex: 1 },
+            cell: { userEnteredFormat: { numberFormat: { type: 'DATE', pattern: 'yyyy-mm-dd' } } },
+            fields: 'userEnteredFormat.numberFormat',
+          },
+        },
+        // B열(항목) 일반 텍스트 서식
+        {
+          repeatCell: {
+            range: { sheetId, startRowIndex: 2, endRowIndex: 1000, startColumnIndex: 1, endColumnIndex: 2 },
+            cell: { userEnteredFormat: { numberFormat: { type: 'TEXT' } } },
+            fields: 'userEnteredFormat.numberFormat',
+          },
+        },
+        // C열(운영비) 숫자 서식 — 천단위 콤마, ₩ 없음
+        {
+          repeatCell: {
+            range: { sheetId, startRowIndex: 2, endRowIndex: 1000, startColumnIndex: 2, endColumnIndex: 3 },
+            cell: { userEnteredFormat: { numberFormat: { type: 'NUMBER', pattern: '#,##0' } } },
+            fields: 'userEnteredFormat.numberFormat',
+          },
+        },
+        // I열(합계) 숫자 서식 — 천단위 콤마, ₩ 없음
+        {
+          repeatCell: {
+            range: { sheetId, startRowIndex: 2, endRowIndex: 1000, startColumnIndex: 8, endColumnIndex: 9 },
+            cell: { userEnteredFormat: { numberFormat: { type: 'NUMBER', pattern: '#,##0' } } },
+            fields: 'userEnteredFormat.numberFormat',
+          },
+        },
+        // A~I열 가로/세로 가운데 맞춤
+        {
+          repeatCell: {
+            range: { sheetId, startRowIndex: 2, endRowIndex: 1000, startColumnIndex: 0, endColumnIndex: 9 },
+            cell: {
+              userEnteredFormat: {
+                horizontalAlignment: 'CENTER',
+                verticalAlignment: 'MIDDLE',
+              },
+            },
+            fields: 'userEnteredFormat(horizontalAlignment,verticalAlignment)',
           },
         },
       ],
