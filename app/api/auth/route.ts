@@ -9,7 +9,7 @@ import {
 
 const delay = (ms: number) => new Promise(r => setTimeout(r, ms))
 
-// 로그인: 비밀번호 확인 → httpOnly + SameSite=Strict 세션 쿠키 발급
+// 로그인: 비밀번호 확인 → httpOnly + SameSite=Lax 세션 쿠키 발급
 export async function POST(req: NextRequest) {
   if (!isAuthConfigured()) {
     return NextResponse.json(
@@ -33,7 +33,9 @@ export async function POST(req: NextRequest) {
   const res = NextResponse.json({ success: true })
   res.cookies.set(SESSION_COOKIE, createSessionToken()!, {
     httpOnly: true, // JS(document.cookie)로 읽기 불가 → XSS로 탈취 방지
-    sameSite: 'strict', // 다른 사이트에서 시작된 요청에는 쿠키 미전송 → CSRF 방지
+    // Lax: 메일·다른 사이트 링크로 들어오는 GET에는 쿠키를 보내 로그인 유지(Strict는 매번 로그인됨).
+    // 다른 사이트발 POST/PUT에는 여전히 미전송 → CSRF 방지. 데이터 변경 GET이 없어서 안전.
+    sameSite: 'lax',
     secure: process.env.NODE_ENV === 'production', // 운영(https)에서만 Secure. 로컬 http(192.168.x.x) 개발 허용
     path: '/',
     maxAge: SESSION_MAX_AGE,
@@ -44,6 +46,6 @@ export async function POST(req: NextRequest) {
 // 로그아웃: 쿠키 삭제
 export async function DELETE() {
   const res = NextResponse.json({ success: true })
-  res.cookies.set(SESSION_COOKIE, '', { httpOnly: true, sameSite: 'strict', path: '/', maxAge: 0 })
+  res.cookies.set(SESSION_COOKIE, '', { httpOnly: true, sameSite: 'lax', path: '/', maxAge: 0 })
   return res
 }

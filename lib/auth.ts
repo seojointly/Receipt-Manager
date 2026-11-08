@@ -56,7 +56,7 @@ export const isAuthenticated = (req: Pick<NextRequest, 'cookies'>, now = Date.no
 
 /**
  * 상태 변경 요청(POST/PUT/DELETE)의 Origin 검사 — SameSite 쿠키와 함께 쓰는 CSRF 이중 방어.
- * Origin 헤더가 없으면(일부 구형 클라이언트) SameSite=Strict에 맡기고 통과.
+ * Origin 헤더가 없으면(일부 구형 클라이언트) SameSite=Lax(다른 사이트발 POST에 쿠키 미전송)에 맡기고 통과.
  */
 export const isSameOrigin = (req: NextRequest): boolean => {
   const origin = req.headers.get('origin')

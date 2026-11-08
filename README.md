@@ -80,7 +80,7 @@ flowchart LR
 
 | 항목 | 적용 내용 |
 |---|---|
-| 로그인 | 비밀번호 로그인 + `HttpOnly`·`SameSite=Strict` 세션 쿠키 |
+| 로그인 | 비밀번호 로그인 + `HttpOnly`·`SameSite=Lax` 세션 쿠키 (서버에서 30일 만료 검사) |
 | CSRF | SameSite 쿠키 + Origin 헤더 검사 |
 | 수식 인젝션 | 시트에 쓰는 문자열이 `=`, `+`, `-`, `@`로 시작하면 텍스트로 저장 |
 | 입력 검증 | 이미지 형식·5MB 제한, 날짜·UUID·글자 수 검증 (Zod) |

@@ -229,7 +229,7 @@ APP_PASSWORD=...  # 앱 로그인 비밀번호(8자 이상). 미설정 시 전�
 
 ## 보안 규칙 (2026-11-04 적용, 상세: `SECURITY_REPORT.md`)
 
-- **인증**: `proxy.ts`가 `/login`, `/api/auth` 외 모든 경로를 세션 쿠키(`rl_session`, httpOnly + SameSite=Strict)로 보호. 모든 API route는 `isAuthenticated(req)`를 다시 확인한다(심층 방어). 새 API route 추가 시 반드시 동일하게 확인할 것.
+- **인증**: `proxy.ts`가 `/login`, `/api/auth` 외 모든 경로를 세션 쿠키(`rl_session`, httpOnly + SameSite=Lax, 만료시각 서명 토큰)로 보호. 데이터를 바꾸는 GET 라우트를 만들지 말 것(Lax는 링크 GET에 쿠키를 보냄). 모든 API route는 `isAuthenticated(req)`를 다시 확인한다(심층 방어). 새 API route 추가 시 반드시 동일하게 확인할 것.
 - **수식 인젝션**: Sheets에 사용자/AI 유래 문자열을 쓸 때는 반드시 `escapeFormula()`를 거친다 (`USER_ENTERED` 모드).
 - **에러 메시지**: 클라이언트에는 `toSheetsErrorMessage(err)` 결과만 반환. googleapis 원본 `err.message` 노출 금지.
 - **입력 제한**: `/api/analyze`는 서버에서 MIME 화이트리스트 + 5MB 제한, `SheetsBodySchema`는 문자열 길이 상한, `id`는 UUID 형식(`ReceiptIdSchema`)만 허용.
