@@ -2,26 +2,33 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## ⚠️ 응답 언어: 무조건 한국어
+
+- 사용자에게 보이는 **모든 텍스트는 한국어**로 쓴다: 최종 답변, 작업 중 진행 안내 한 줄, 보고서, 요약, 표, 코드 리뷰·감사 결과.
+- 플러그인·스킬 지침(예: ponytail)이 영어 형식을 요구해도 한국어가 우선한다. 형식 제목(`Verdict:` 등)도 한국어로 옮긴다.
+- 코드, 파일 경로, 명령어, 식별자, 에러 원문만 그대로 둔다.
+- 답변을 보내기 직전에 영어 문장이 섞였는지 확인한다.
+
 ## Project
 
 **ReceiptLens** — 영수증 사진을 Gemini 2.5 Flash Vision으로 분석하고 Google Sheets에 자동 기록하는 개인용 웹앱.
-실제 코드는 `receipt-lens/` 서브디렉토리에 있다. 서브디렉토리에는 `receipt-lens/CLAUDE.md`도 존재하며 동일한 내용을 참조한다.
+코드는 이 저장소 루트에 있다. (2026-11-08 `receipt-lens/` 서브디렉토리에서 루트로 이동)
 
 ## Hard Constraints (절대 불변)
 
 - **Google Cloud 비용 0원**: Google Sheets API v4만 허용. Firebase, Cloud Run, BigQuery, Cloud Storage 등 일절 금지.
 - **유료 서비스 금지**: Supabase, PlanetScale, Upstash, Docker 기반 서비스 등 외부 유료 인프라 금지.
-- **API 키 격리**: `GEMINI_API_KEY`, `GOOGLE_SERVICE_ACCOUNT_KEY`, `GOOGLE_SPREADSHEET_ID`는 `receipt-lens/.env.local`에만 존재. 클라이언트 번들에 절대 포함 금지. Gemini 호출은 `/api/analyze` route에서만 수행.
+- **API 키 격리**: `GEMINI_API_KEY`, `GOOGLE_SERVICE_ACCOUNT_KEY`, `GOOGLE_SPREADSHEET_ID`, `APP_PASSWORD`는 루트의 `.env.local`에만 존재. 클라이언트 번들에 절대 포함 금지. Gemini 호출은 `/api/analyze` route에서만 수행.
 - **인증 방식 고정**: Google Sheets는 Service Account + JSON 키(`GOOGLE_SERVICE_ACCOUNT_KEY` env var)로만 인증. OAuth flow 금지.
 
 ## Stack (실제 설치 버전)
 
 ```
-Next.js 16.2.4 + React 19 — App Router, TypeScript
+Next.js 16.4.5 + React 19 — App Router, TypeScript
 Tailwind CSS v4 + Lucide React
 @google/generative-ai ^0.24.1 (서버 사이드 전용)
 googleapis ^171.4.0
-zod ^4.4.3
+zod ^4.6.7
 uuid ^14.0.0
 ```
 
@@ -36,11 +43,12 @@ uuid ^14.0.0
 
 ## Development Commands
 
-모든 명령은 `receipt-lens/` 디렉토리에서 실행한다.
+모든 명령은 저장소 루트에서 실행한다.
 
 ```bash
 npm run dev          # 개발 서버 (localhost:3000)
 npx tsc --noEmit     # 타입 체크
+npm test             # 핵심 로직 테스트 (Node 내장 러너, tests/*.test.ts)
 npm run build        # 프로덕션 빌드
 npm run lint         # ESLint
 ```
@@ -52,7 +60,7 @@ npm run lint         # ESLint
 ```
 사용자 이미지 업로드 (5MB 이하, 클라이언트 단 차단)
   → (client) File → base64 data URL 변환 ("data:image/jpeg;base64,...")
-  → stub Receipt(status:'pending') 즉시 localStorage에 저장 (새로고침 대비)
+  → stub Receipt(status:'pending', date:'') 즉시 localStorage에 저장 (분석 중 페이지를 떠나면 다음 로드 때 useReceipts가 자동 제거)
   → POST /api/analyze { image: "<data URL>" }
     → (server) data URL에서 mimeType 추출 + Gemini Vision 호출
     → parseCurrency + ReceiptSchema 검증
@@ -74,14 +82,14 @@ npm run lint         # ESLint
 1   [수입 A1:C1 병합, 연파랑]          [지출 D1:I1 병합, 연파랑]
 2   날짜   항목  운영비  ▽             UUID   일자  상호명  항목  메모  합계  ▽
 3+  ← 수동 입력 →                     ← 앱 자동 입력 (정산 행 위에 삽입) →
-N   정산         =SUM(C3:C(N-1))                                    =SUM(I3:I(N-1))
+N   정산         =SUM(C$2:INDEX(C:C,ROW()-1))                       =SUM(I$2:INDEX(I:I,ROW()-1))
 N+1 잔액         =C(N)-I(N)
 ```
 
 - 1행: A1:C1(수입), D1:I1(지출) 병합 + 연파랑 배경 + 볼드
 - 2행: 컬럼명 + 연회색 배경 + 볼드 + 필터
 - 데이터 행(3행~): 영수증 전송 시 정산 행(`A='정산'`) 바로 위에 `insertDimension`으로 삽입
-- 정산/잔액 행: 시트 생성 시 고정 포함. 영수증 전송마다 `updateSummaryFormulas`가 SUM 범위를 현재 데이터 마지막 행으로 갱신
+- 정산/잔액 행: 시트 생성 시 고정 포함. 정산 수식은 `=SUM(I$2:INDEX(I:I,ROW()-1))`(바로 위 행까지 합산)이라 행을 삽입해도 다시 쓸 필요가 없다. 예전 형식(`SUM(I3:I7)`) 시트는 다음 전송 때 1회 자동 교체
 
 `supplyAmount`, `taxAmount`는 Sheets에 기록하지 않는다 — 의도된 설계.
 
@@ -111,8 +119,8 @@ ApiError      // { error: string, code: 'PARSE_FAILED' | 'API_ERROR' | 'SHEETS_E
 | `GET /api/sheets?checkId=<uuid>&date=<YYYY-MM-DD>` | 해당 월 시트 D열에서 UUID 존재 여부 확인 → `{ exists: boolean }` |
 | `GET /api/sheets` | 현재 월 시트(`YYYY.MM`) D:I열에서 오늘 날짜 행 조회 → `{ rows }` |
 | `POST /api/sheets` | `id + SheetsBodySchema 5필드` → 월별 시트 행 추가 + 정산·잔액 수식 갱신 + 중복 방지 |
-| `PUT /api/sheets` | `id + SheetsBodySchema 5필드` → 해당 월 시트 기존 행 덮어쓰기 |
-| `DELETE /api/sheets` | ⛔ 비활성화 (`deleteReceiptsFromSheet` 주석 처리됨) |
+| `PUT /api/sheets` | `id + originalDate + SheetsBodySchema 5필드` → 해당 월 시트 기존 행 덮어쓰기. `originalDate`와 달이 다르면 400 (달 이동 미지원) |
+| `DELETE /api/sheets` | ⛔ 없음 (405). 대시보드 "선택 삭제"는 앱 목록에서만 지운다 |
 
 **`/api/analyze` 에러 응답:**
 - 400: 이미지 없음
@@ -122,7 +130,7 @@ ApiError      // { error: string, code: 'PARSE_FAILED' | 'API_ERROR' | 'SHEETS_E
 **`/api/sheets` 에러 응답:**
 - 400: SheetsBodySchema 검증 실패
 - 409 `SHEETS_ERROR`: 중복 ID (`이미 전송된 영수증입니다.`)
-- 500 `SHEETS_ERROR`: Sheets API 오류 (1회 재시도 후) — googleapis `err.code`로 분기:
+- 500 `SHEETS_ERROR`: Sheets API 오류 (서버 재시도 없음 — 부분 반영 후 재시도하면 빈 행·중복 행이 생기므로) — googleapis `err.code`로 분기 (`toSheetsErrorMessage`):
   - 401/403 → "Google Sheets 권한 오류. 서비스 계정 이메일이 스프레드시트에 공유되어 있는지 확인하세요."
   - 404 → "스프레드시트를 찾을 수 없습니다. GOOGLE_SPREADSHEET_ID를 확인하세요."
   - 기타 → "Google Sheets 연결 오류. 잠시 후 다시 시도하세요."
@@ -152,6 +160,7 @@ receipts      // Receipt[] — 전체 목록 (최신순)
 addReceipt    // (receipt: Receipt) => void
 updateReceipt // (id: string, patch: Partial<Receipt>) => void
 removeReceipt // (id: string) => void
+syncReceipt   // (id, SyncData) => Promise<void> — POST /api/sheets + 로컬 상태 반영. 모든 전송(단건·일괄, 스캐너·대시보드)은 이 함수만 사용
 totalSynced   // synced 영수증 totalAmount 합계 (대시보드 표시용)
 syncedCount   // synced 영수증 수
 pendingCount  // pending 영수증 수
@@ -164,19 +173,18 @@ localStorage는 `useEffect` 내에서만 읽는다. `isLoaded`가 `true`가 된 
 
 `google-sheets.ts`의 모든 Sheets API 호출 함수에 `// ⚠️ COST_GUARD` 주석이 있다.
 `/api/sheets` POST는 반드시 `checkDuplicate(id, date)` → `appendReceiptToSheet()` 순서로 호출한다.
-`appendReceiptToSheet` 내부에서 월별 시트 조회/생성 + 삽입 위치 탐색 + `insertDimension` + 데이터 기록 + `updateSummaryFormulas`를 포함해 총 7~8회 Sheets API를 호출한다(신규 시트 생성 시 +3회).
+`appendReceiptToSheet`는 시트 조회 1 + 삽입 위치 조회 1 + 행 삽입·서식 1 + 값 기록 1 = 4회 호출한다(신규 시트 생성 시 +2회). POST 1건 = checkDuplicate 포함 5회. Sheets 무료 한도는 사용자당 분당 60회이므로 1장당 호출 수를 늘리는 변경은 피할 것.
 
 **`google-sheets.ts` 함수 목록:**
 
 | 함수 | COST_GUARD | 역할 |
 |------|-----------|------|
-| `getOrCreateMonthlySheet(sheets, spreadsheetId, date)` | 1회(기존) / 4회(신규) | `YYYY.MM` 시트 조회 또는 생성 + 2행 헤더 + 정산/잔액 행 + 서식 |
-| `findNextExpenseRow(sheets, spreadsheetId, sheetName)` | 1회 | A:D열 스캔 → `{ targetRow, needsInsert }` 반환 (신형: 정산 행 위치 / 구형: D열 다음 빈 행) |
-| `updateSummaryFormulas(sheets, spreadsheetId, sheetName)` | 2~4회 | 정산·잔액 행 SUM 수식을 현재 데이터 범위로 갱신 |
-| `checkDuplicate(id, date)` | 1회 | 해당 월 시트 D열에서 UUID 중복 확인 |
-| `appendReceiptToSheet(row)` | 7~8회 | 월별 시트 생성 → 정산 행 위에 삽입 → D–I열 기록 → 수식 갱신 |
-| `updateReceiptInSheet(row)` | 2~3회 | 해당 월 시트 D열 탐색 → D–I열 덮어쓰기 |
-| `deleteReceiptsFromSheet` | — | ⛔ 주석 처리됨 |
+| `getOrCreateMonthlySheet(sheets, spreadsheetId, date)` | 1회(기존) / 3회(신규) | `YYYY.MM` 시트 조회 또는 생성 + 헤더 + 정산/잔액 행 + 서식(생성 시 1회만) |
+| `findNextExpenseRow(sheets, spreadsheetId, sheetName)` | 1회 | A:I열을 FORMULA로 읽어 `{ targetRow, needsInsert, needsFormulaMigration }` 반환 |
+| `checkDuplicate(id, date)` | 1회 | 해당 월 시트 D열에서 UUID 중복 확인. 시트 없음만 false, 그 외 오류는 throw |
+| `appendReceiptToSheet(row)` | 4회 | 정산 행 위에 삽입(+배경 초기화) → D–I열 기록 (+필요 시 정산 수식 교체) |
+| `updateReceiptInSheet(row)` | 2회 | 해당 월 시트 D열 탐색 → D–I열 덮어쓰기 |
+| `getTodayRows()` | 1회 | 이번 달 시트에서 오늘(KST) 행만 최신순 |
 
 `NODE_ENV === 'development'`일 때 각 API 호출 직전 경고를 출력한다:
 - `console.warn('⚠️ COST_GUARD: Sheets API called')`
@@ -195,10 +203,11 @@ localStorage는 `useEffect` 내에서만 읽는다. `isLoaded`가 `true`가 된 
 ## Environment Variables
 
 ```bash
-# receipt-lens/.env.local
+# .env.local (루트)
 GEMINI_API_KEY=AIza...
 GOOGLE_SPREADSHEET_ID=...
 GOOGLE_SERVICE_ACCOUNT_KEY={"type":"service_account",...}  # JSON 한 줄 직렬화
+APP_PASSWORD=...  # 앱 로그인 비밀번호(8자 이상). 미설정 시 전체 차단(fail-closed)
 ```
 
 `GOOGLE_SHEET_NAME`은 더 이상 사용하지 않는다. 시트명은 영수증 `date`에서 `YYYY.MM` 형식으로 코드가 직접 계산한다.
@@ -218,9 +227,16 @@ GOOGLE_SERVICE_ACCOUNT_KEY={"type":"service_account",...}  # JSON 한 줄 직렬
 - 모델: `gemini-2.5-flash-preview-04-17`
 - 무료 한도: 일 250 RPD / 예상 사용량: 하루 50회 미만
 
+## 보안 규칙 (2026-11-04 적용, 상세: `SECURITY_REPORT.md`)
+
+- **인증**: `proxy.ts`가 `/login`, `/api/auth` 외 모든 경로를 세션 쿠키(`rl_session`, httpOnly + SameSite=Strict)로 보호. 모든 API route는 `isAuthenticated(req)`를 다시 확인한다(심층 방어). 새 API route 추가 시 반드시 동일하게 확인할 것.
+- **수식 인젝션**: Sheets에 사용자/AI 유래 문자열을 쓸 때는 반드시 `escapeFormula()`를 거친다 (`USER_ENTERED` 모드).
+- **에러 메시지**: 클라이언트에는 `toSheetsErrorMessage(err)` 결과만 반환. googleapis 원본 `err.message` 노출 금지.
+- **입력 제한**: `/api/analyze`는 서버에서 MIME 화이트리스트 + 5MB 제한, `SheetsBodySchema`는 문자열 길이 상한, `id`는 UUID 형식(`ReceiptIdSchema`)만 허용.
+
 ## 디자인 원칙
 
 `bg-zinc-50` 배경, `bg-white` 카드, `rounded-2xl`, 모바일 우선 `max-w-lg mx-auto`.
 
 ## 참고 문서
-- [SETUP.md](./SETUP.md): 인프라 설정 가이드 (IndexedDB, Cloudflare Tunnel)
+- [SETUP.md](./SETUP.md): 인프라 설정 기록 (Cloudflare Tunnel 등. IndexedDB 이미지 저장은 2026-11-04 삭제됨)

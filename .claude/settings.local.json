@@ -17,7 +17,9 @@
       "Bash(git init *)",
       "Bash(git commit -m 'fix: increase image upload limit from 5MB to 20MB *)",
       "PowerShell(taskkill *)",
-      "Bash(echo \"EXIT:$?\")"
+      "Bash(echo \"EXIT:$?\")",
+      "PowerShell($env:PATH; node --version 2>&1)",
+      "PowerShell(& \"C:\\\\Program Files\\\\IT\\\\nodejs\\\\node.exe\" --version)"
     ]
   }
 }
