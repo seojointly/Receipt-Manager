@@ -25,10 +25,19 @@ const safeEqual = (a: string, b: string): boolean => {
 /** APP_PASSWORD가 설정되어 있는지 (미설정 시 모든 요청 차단 = fail-closed) */
 export const isAuthConfigured = (): boolean => getPassword() !== null
 
-export const createSessionToken = (): string | null => {
+const sign = (pw: string, exp: number) =>
+  createHmac('sha256', pw).update(`${SESSION_MESSAGE}.${exp}`).digest('hex')
+
+/**
+ * 세션 토큰 = "만료시각.서명". 만료시각까지 서명해서 서버가 만료를 직접 검사한다
+ * (쿠키 maxAge는 브라우저 설정일 뿐이라, 탈취된 쿠키를 막지 못함).
+ * shortcut: 로그아웃해도 이미 복사된 토큰은 만료 전까지 유효(서버 저장소 없음). 즉시 무효화가 필요하면 APP_PASSWORD 변경.
+ */
+export const createSessionToken = (now = Date.now()): string | null => {
   const pw = getPassword()
   if (!pw) return null
-  return createHmac('sha256', pw).update(SESSION_MESSAGE).digest('hex')
+  const exp = now + SESSION_MAX_AGE * 1000
+  return `${exp}.${sign(pw, exp)}`
 }
 
 export const verifyPassword = (input: unknown): boolean => {
@@ -37,11 +46,12 @@ export const verifyPassword = (input: unknown): boolean => {
   return safeEqual(input, pw)
 }
 
-export const isAuthenticated = (req: NextRequest): boolean => {
-  const expected = createSessionToken()
-  const actual = req.cookies.get(SESSION_COOKIE)?.value
-  if (!expected || !actual) return false
-  return safeEqual(actual, expected)
+export const isAuthenticated = (req: Pick<NextRequest, 'cookies'>, now = Date.now()): boolean => {
+  const pw = getPassword()
+  const [expStr, sig] = req.cookies.get(SESSION_COOKIE)?.value.split('.') ?? []
+  const exp = Number(expStr)
+  if (!pw || !sig || !Number.isSafeInteger(exp) || exp <= now) return false
+  return safeEqual(sig, sign(pw, exp))
 }
 
 /**

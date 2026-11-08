@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { parseCurrency, ReceiptSchema, DateSchema, ReceiptIdSchema, SheetsBodySchema } from '../lib/validators.ts'
 import { escapeFormula, sheetNameOf } from '../lib/google-sheets.ts'
+import { createSessionToken, isAuthenticated, SESSION_COOKIE, SESSION_MAX_AGE } from '../lib/auth.ts'
 
 test('parseCurrency: 영수증 금액 문자열을 숫자로', () => {
   assert.equal(parseCurrency('12,000원'), 12000)
@@ -45,6 +46,22 @@ test('입력 검증: UUID 아닌 id, 너무 긴 메모 거부', () => {
   assert.equal(SheetsBodySchema.safeParse(base).success, true)
   assert.equal(SheetsBodySchema.safeParse({ ...base, memo: 'x'.repeat(501) }).success, false)
   assert.equal(SheetsBodySchema.safeParse({ ...base, totalAmount: -1 }).success, false)
+})
+
+test('세션 토큰: 서명·만료를 서버에서 검사', () => {
+  process.env.APP_PASSWORD = 'test-password-123'
+  const req = (value?: string) => ({ cookies: { get: () => (value ? { name: SESSION_COOKIE, value } : undefined) } }) as never
+  const now = Date.now()
+  const token = createSessionToken(now)!
+  const [exp, sig] = token.split('.')
+
+  assert.equal(isAuthenticated(req(token), now), true)
+  assert.equal(isAuthenticated(req(token), now + (SESSION_MAX_AGE + 1) * 1000), false) // 만료
+  assert.equal(isAuthenticated(req(`${Number(exp) + 999999}.${sig}`), now), false)      // 만료시각 조작
+  assert.equal(isAuthenticated(req(`${exp}.deadbeef`), now), false)                      // 서명 위조
+  assert.equal(isAuthenticated(req(undefined), now), false)                              // 쿠키 없음
+  process.env.APP_PASSWORD = 'changed-password-456'
+  assert.equal(isAuthenticated(req(token), now), false)                                  // 비밀번호 변경 시 전체 무효
 })
 
 test('sheetNameOf: 날짜 → 월별 시트명', () => {
